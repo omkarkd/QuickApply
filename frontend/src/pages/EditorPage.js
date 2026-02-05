@@ -31,6 +31,7 @@ const EditorPage = () => {
   const [downloading, setDownloading] = useState(null);
   const [parseMode, setParseMode] = useState('ai');
   const [isExistingResume, setIsExistingResume] = useState(false);
+  const [activeTab, setActiveTab] = useState('input');
 
   useEffect(() => {
     if (resumeId) {
@@ -69,7 +70,7 @@ const EditorPage = () => {
       const endpoint = mode === 'ai' ? '/parse/ai' : '/parse/simple';
       const response = await axios.post(`${API}${endpoint}`, { text: rawText });
       setParsedData(response.data);
-      toast.success(`Resume parsed successfully with ${mode === 'ai' ? 'AI' : 'Simple'} mode`);
+      toast.success(`Resume parsed with ${mode === 'ai' ? 'AI' : 'Simple'} mode`);
     } catch (error) {
       const message = error.response?.data?.detail || 'Failed to parse resume';
       toast.error(message);
@@ -143,10 +144,159 @@ const EditorPage = () => {
   };
 
   const updateParsedField = (field, value) => {
-    setParsedData(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    setParsedData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const ResumePreview = () => {
+    if (!parsedData) {
+      return (
+        <div className="resume-paper bg-white rounded-sm p-8 flex flex-col items-center justify-center text-center">
+          <div className="w-16 h-16 bg-neutral-100 rounded-lg flex items-center justify-center mb-4">
+            <FileText className="w-8 h-8 text-slate-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-slate-700 mb-2" style={{ fontFamily: 'Manrope' }}>
+            No Preview Yet
+          </h3>
+          <p className="text-sm text-slate-500 max-w-xs">
+            Paste your resume text and click parse to see the formatted preview.
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="resume-paper bg-white rounded-sm p-8 overflow-auto"
+        data-testid="resume-preview"
+      >
+        {parsedData.name && (
+          <h1 className="text-2xl font-bold text-indigo-950 mb-1" style={{ fontFamily: 'Manrope' }}>
+            {parsedData.name}
+          </h1>
+        )}
+
+        <div className="flex flex-wrap gap-3 text-sm text-slate-600 mb-6">
+          {parsedData.email && (
+            <span className="flex items-center gap-1">
+              <Mail className="w-3 h-3" />
+              {parsedData.email}
+            </span>
+          )}
+          {parsedData.linkedin && (
+            <span className="flex items-center gap-1">
+              <Linkedin className="w-3 h-3" />
+              {parsedData.linkedin}
+            </span>
+          )}
+        </div>
+
+        {parsedData.professional_summary && (
+          <div className="mb-6">
+            <h2 className="text-sm font-bold text-indigo-950 uppercase tracking-wide mb-2 border-b border-indigo-200 pb-1">
+              Professional Summary
+            </h2>
+            <p className="text-sm text-slate-700 leading-relaxed">
+              {parsedData.professional_summary}
+            </p>
+          </div>
+        )}
+
+        {parsedData.technical_skills && parsedData.technical_skills.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-sm font-bold text-indigo-950 uppercase tracking-wide mb-2 border-b border-indigo-200 pb-1">
+              Technical Skills
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {parsedData.technical_skills.map((skill, i) => (
+                <span key={i} className="px-2 py-1 bg-lime-100 text-indigo-950 text-xs rounded-sm">
+                  {skill}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {parsedData.experiences && parsedData.experiences.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-sm font-bold text-indigo-950 uppercase tracking-wide mb-3 border-b border-indigo-200 pb-1">
+              Experience
+            </h2>
+            <div className="space-y-4">
+              {parsedData.experiences.map((exp, i) => (
+                <div key={i}>
+                  <h3 className="font-semibold text-indigo-900 text-sm">{exp.title}</h3>
+                  {(exp.company || exp.from_date) && (
+                    <p className="text-xs text-slate-500 italic">
+                      {exp.company}{exp.company && exp.from_date && ' | '}{exp.from_date}{exp.to_date && ` - ${exp.to_date}`}
+                    </p>
+                  )}
+                  {exp.bullets && exp.bullets.length > 0 && (
+                    <ul className="mt-1 space-y-0.5">
+                      {exp.bullets.map((bullet, j) => (
+                        <li key={j} className="text-xs text-slate-700 flex items-start gap-1">
+                          <span className="text-indigo-400 mt-0.5">•</span>
+                          {bullet}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {parsedData.projects && parsedData.projects.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-sm font-bold text-indigo-950 uppercase tracking-wide mb-3 border-b border-indigo-200 pb-1">
+              Projects
+            </h2>
+            <div className="space-y-4">
+              {parsedData.projects.map((proj, i) => (
+                <div key={i}>
+                  <h3 className="font-semibold text-indigo-900 text-sm">{proj.title}</h3>
+                  {proj.description && (
+                    <p className="text-xs text-slate-600 mt-0.5">{proj.description}</p>
+                  )}
+                  {proj.bullets && proj.bullets.length > 0 && (
+                    <ul className="mt-1 space-y-0.5">
+                      {proj.bullets.map((bullet, j) => (
+                        <li key={j} className="text-xs text-slate-700 flex items-start gap-1">
+                          <span className="text-indigo-400 mt-0.5">•</span>
+                          {bullet}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {parsedData.education && parsedData.education.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-sm font-bold text-indigo-950 uppercase tracking-wide mb-3 border-b border-indigo-200 pb-1">
+              Education
+            </h2>
+            <div className="space-y-3">
+              {parsedData.education.map((edu, i) => (
+                <div key={i}>
+                  <h3 className="font-semibold text-indigo-900 text-sm">{edu.title}</h3>
+                  {(edu.institution || edu.from_date) && (
+                    <p className="text-xs text-slate-500 italic">
+                      {edu.institution}{edu.institution && edu.from_date && ' | '}{edu.from_date}{edu.to_date && ` - ${edu.to_date}`}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </motion.div>
+    );
   };
 
   return (
@@ -183,11 +333,7 @@ const EditorPage = () => {
                 className="border-indigo-200 text-indigo-950 hover:bg-indigo-50 rounded-sm"
                 data-testid="save-resume-btn"
               >
-                {saving ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4 mr-2" />
-                )}
+                {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                 Save
               </Button>
               <Button
@@ -196,11 +342,7 @@ const EditorPage = () => {
                 className="bg-indigo-950 hover:bg-indigo-900 text-white rounded-sm"
                 data-testid="download-pdf-btn"
               >
-                {downloading === 'pdf' ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <FileDown className="w-4 h-4 mr-2" />
-                )}
+                {downloading === 'pdf' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileDown className="w-4 h-4 mr-2" />}
                 PDF
               </Button>
               <Button
@@ -209,11 +351,7 @@ const EditorPage = () => {
                 className="bg-lime-200 hover:bg-lime-300 text-indigo-950 rounded-sm"
                 data-testid="download-docx-btn"
               >
-                {downloading === 'docx' ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Download className="w-4 h-4 mr-2" />
-                )}
+                {downloading === 'docx' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                 DOCX
               </Button>
             </div>
@@ -225,7 +363,7 @@ const EditorPage = () => {
       <div className="flex h-[calc(100vh-64px)]">
         {/* Left Panel - Editor */}
         <div className="flex-1 border-r border-neutral-200 bg-white overflow-hidden flex flex-col">
-          <Tabs defaultValue="input" className="flex-1 flex flex-col">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
             <div className="border-b border-neutral-200 px-6 pt-4">
               <TabsList className="bg-neutral-100 rounded-sm">
                 <TabsTrigger value="input" className="rounded-sm data-[state=active]:bg-white" data-testid="tab-input">
@@ -244,14 +382,14 @@ const EditorPage = () => {
                     Paste Your Resume Text
                   </Label>
                   <p className="text-sm text-slate-500 mb-3">
-                    Copy and paste your resume content below. Include all sections like experience, education, skills, etc.
+                    Copy and paste your resume content below.
                   </p>
                 </div>
                 
                 <Textarea
                   value={rawText}
                   onChange={(e) => setRawText(e.target.value)}
-                  placeholder="John Doe
+                  placeholder={`John Doe
 john.doe@email.com
 linkedin.com/in/johndoe
 
@@ -268,7 +406,7 @@ Jan 2020 - Present
 • Improved performance by 40%
 
 Education
-BS Computer Science - MIT, 2019"
+BS Computer Science - MIT, 2019`}
                   className="flex-1 min-h-[300px] bg-neutral-50 border-neutral-300 focus:border-indigo-500 rounded-sm resize-none font-mono text-sm"
                   data-testid="resume-text-input"
                 />
@@ -280,11 +418,7 @@ BS Computer Science - MIT, 2019"
                     className="flex-1 bg-indigo-950 hover:bg-indigo-900 text-white rounded-sm h-12 btn-hover-lift"
                     data-testid="parse-ai-btn"
                   >
-                    {loading && parseMode === 'ai' ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-4 h-4 mr-2" />
-                    )}
+                    {loading && parseMode === 'ai' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
                     AI Parse (GPT-5.2)
                   </Button>
                   <Button
@@ -294,11 +428,7 @@ BS Computer Science - MIT, 2019"
                     className="flex-1 border-indigo-200 text-indigo-950 hover:bg-indigo-50 rounded-sm h-12"
                     data-testid="parse-simple-btn"
                   >
-                    {loading && parseMode === 'simple' ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Zap className="w-4 h-4 mr-2" />
-                    )}
+                    {loading && parseMode === 'simple' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
                     Simple Parse
                   </Button>
                 </div>
@@ -377,166 +507,6 @@ BS Computer Science - MIT, 2019"
                       data-testid="edit-skills-input"
                     />
                   </div>
-
-                  {/* Experience */}
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-indigo-950 uppercase tracking-wide flex items-center gap-2">
-                      <Briefcase className="w-4 h-4" />
-                      Experience
-                    </h3>
-                    {parsedData?.experiences?.map((exp, index) => (
-                      <div key={index} className="p-4 bg-neutral-50 rounded-sm space-y-3 border border-neutral-200">
-                        <Input
-                          value={exp.title || ''}
-                          onChange={(e) => {
-                            const updated = [...(parsedData.experiences || [])];
-                            updated[index] = { ...updated[index], title: e.target.value };
-                            updateParsedField('experiences', updated);
-                          }}
-                          placeholder="Job Title"
-                          className="font-medium rounded-sm"
-                        />
-                        <div className="grid grid-cols-3 gap-3">
-                          <Input
-                            value={exp.company || ''}
-                            onChange={(e) => {
-                              const updated = [...(parsedData.experiences || [])];
-                              updated[index] = { ...updated[index], company: e.target.value };
-                              updateParsedField('experiences', updated);
-                            }}
-                            placeholder="Company"
-                            className="rounded-sm"
-                          />
-                          <Input
-                            value={exp.from_date || ''}
-                            onChange={(e) => {
-                              const updated = [...(parsedData.experiences || [])];
-                              updated[index] = { ...updated[index], from_date: e.target.value };
-                              updateParsedField('experiences', updated);
-                            }}
-                            placeholder="From Date"
-                            className="rounded-sm"
-                          />
-                          <Input
-                            value={exp.to_date || ''}
-                            onChange={(e) => {
-                              const updated = [...(parsedData.experiences || [])];
-                              updated[index] = { ...updated[index], to_date: e.target.value };
-                              updateParsedField('experiences', updated);
-                            }}
-                            placeholder="To Date"
-                            className="rounded-sm"
-                          />
-                        </div>
-                        <Textarea
-                          value={exp.bullets?.join('\n') || ''}
-                          onChange={(e) => {
-                            const updated = [...(parsedData.experiences || [])];
-                            updated[index] = { ...updated[index], bullets: e.target.value.split('\n').filter(Boolean) };
-                            updateParsedField('experiences', updated);
-                          }}
-                          placeholder="Bullet points (one per line)"
-                          className="rounded-sm"
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Projects */}
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-indigo-950 uppercase tracking-wide flex items-center gap-2">
-                      <FolderOpen className="w-4 h-4" />
-                      Projects
-                    </h3>
-                    {parsedData?.projects?.map((proj, index) => (
-                      <div key={index} className="p-4 bg-neutral-50 rounded-sm space-y-3 border border-neutral-200">
-                        <Input
-                          value={proj.title || ''}
-                          onChange={(e) => {
-                            const updated = [...(parsedData.projects || [])];
-                            updated[index] = { ...updated[index], title: e.target.value };
-                            updateParsedField('projects', updated);
-                          }}
-                          placeholder="Project Title"
-                          className="font-medium rounded-sm"
-                        />
-                        <Textarea
-                          value={proj.description || ''}
-                          onChange={(e) => {
-                            const updated = [...(parsedData.projects || [])];
-                            updated[index] = { ...updated[index], description: e.target.value };
-                            updateParsedField('projects', updated);
-                          }}
-                          placeholder="Description"
-                          className="rounded-sm"
-                        />
-                        <Textarea
-                          value={proj.bullets?.join('\n') || ''}
-                          onChange={(e) => {
-                            const updated = [...(parsedData.projects || [])];
-                            updated[index] = { ...updated[index], bullets: e.target.value.split('\n').filter(Boolean) };
-                            updateParsedField('projects', updated);
-                          }}
-                          placeholder="Bullet points (one per line)"
-                          className="rounded-sm"
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Education */}
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-indigo-950 uppercase tracking-wide flex items-center gap-2">
-                      <GraduationCap className="w-4 h-4" />
-                      Education
-                    </h3>
-                    {parsedData?.education?.map((edu, index) => (
-                      <div key={index} className="p-4 bg-neutral-50 rounded-sm space-y-3 border border-neutral-200">
-                        <Input
-                          value={edu.title || ''}
-                          onChange={(e) => {
-                            const updated = [...(parsedData.education || [])];
-                            updated[index] = { ...updated[index], title: e.target.value };
-                            updateParsedField('education', updated);
-                          }}
-                          placeholder="Degree / Certificate"
-                          className="font-medium rounded-sm"
-                        />
-                        <div className="grid grid-cols-3 gap-3">
-                          <Input
-                            value={edu.institution || ''}
-                            onChange={(e) => {
-                              const updated = [...(parsedData.education || [])];
-                              updated[index] = { ...updated[index], institution: e.target.value };
-                              updateParsedField('education', updated);
-                            }}
-                            placeholder="Institution"
-                            className="rounded-sm"
-                          />
-                          <Input
-                            value={edu.from_date || ''}
-                            onChange={(e) => {
-                              const updated = [...(parsedData.education || [])];
-                              updated[index] = { ...updated[index], from_date: e.target.value };
-                              updateParsedField('education', updated);
-                            }}
-                            placeholder="From"
-                            className="rounded-sm"
-                          />
-                          <Input
-                            value={edu.to_date || ''}
-                            onChange={(e) => {
-                              const updated = [...(parsedData.education || [])];
-                              updated[index] = { ...updated[index], to_date: e.target.value };
-                              updateParsedField('education', updated);
-                            }}
-                            placeholder="To"
-                            className="rounded-sm"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </ScrollArea>
             </TabsContent>
@@ -549,159 +519,7 @@ BS Computer Science - MIT, 2019"
             <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-4">
               Live Preview
             </h3>
-            
-            {parsedData ? (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="resume-paper bg-white rounded-sm p-8 overflow-auto"
-                data-testid="resume-preview"
-              >
-                {/* Name */}
-                {parsedData.name && (
-                  <h1 className="text-2xl font-bold text-indigo-950 mb-1" style={{ fontFamily: 'Manrope' }}>
-                    {parsedData.name}
-                  </h1>
-                )}
-
-                {/* Contact */}
-                <div className="flex flex-wrap gap-3 text-sm text-slate-600 mb-6">
-                  {parsedData.email && (
-                    <span className="flex items-center gap-1">
-                      <Mail className="w-3 h-3" />
-                      {parsedData.email}
-                    </span>
-                  )}
-                  {parsedData.linkedin && (
-                    <span className="flex items-center gap-1">
-                      <Linkedin className="w-3 h-3" />
-                      {parsedData.linkedin}
-                    </span>
-                  )}
-                </div>
-
-                {/* Professional Summary */}
-                {parsedData.professional_summary && (
-                  <div className="mb-6">
-                    <h2 className="text-sm font-bold text-indigo-950 uppercase tracking-wide mb-2 border-b border-indigo-200 pb-1">
-                      Professional Summary
-                    </h2>
-                    <p className="text-sm text-slate-700 leading-relaxed">
-                      {parsedData.professional_summary}
-                    </p>
-                  </div>
-                )}
-
-                {/* Technical Skills */}
-                {parsedData.technical_skills?.length > 0 && (
-                  <div className="mb-6">
-                    <h2 className="text-sm font-bold text-indigo-950 uppercase tracking-wide mb-2 border-b border-indigo-200 pb-1">
-                      Technical Skills
-                    </h2>
-                    <div className="flex flex-wrap gap-2">
-                      {parsedData.technical_skills.map((skill, i) => (
-                        <span key={i} className="px-2 py-1 bg-lime-100 text-indigo-950 text-xs rounded-sm">
-                          {skill}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Experience */}
-                {parsedData.experiences?.length > 0 && (
-                  <div className="mb-6">
-                    <h2 className="text-sm font-bold text-indigo-950 uppercase tracking-wide mb-3 border-b border-indigo-200 pb-1">
-                      Experience
-                    </h2>
-                    <div className="space-y-4">
-                      {parsedData.experiences.map((exp, i) => (
-                        <div key={i}>
-                          <h3 className="font-semibold text-indigo-900 text-sm">{exp.title}</h3>
-                          {(exp.company || exp.from_date) && (
-                            <p className="text-xs text-slate-500 italic">
-                              {exp.company}{exp.company && exp.from_date && ' | '}{exp.from_date}{exp.to_date && ` - ${exp.to_date}`}
-                            </p>
-                          )}
-                          {exp.bullets?.length > 0 && (
-                            <ul className="mt-1 space-y-0.5">
-                              {exp.bullets.map((bullet, j) => (
-                                <li key={j} className="text-xs text-slate-700 flex items-start gap-1">
-                                  <span className="text-indigo-400 mt-0.5">•</span>
-                                  {bullet}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Projects */}
-                {parsedData.projects?.length > 0 && (
-                  <div className="mb-6">
-                    <h2 className="text-sm font-bold text-indigo-950 uppercase tracking-wide mb-3 border-b border-indigo-200 pb-1">
-                      Projects
-                    </h2>
-                    <div className="space-y-4">
-                      {parsedData.projects.map((proj, i) => (
-                        <div key={i}>
-                          <h3 className="font-semibold text-indigo-900 text-sm">{proj.title}</h3>
-                          {proj.description && (
-                            <p className="text-xs text-slate-600 mt-0.5">{proj.description}</p>
-                          )}
-                          {proj.bullets?.length > 0 && (
-                            <ul className="mt-1 space-y-0.5">
-                              {proj.bullets.map((bullet, j) => (
-                                <li key={j} className="text-xs text-slate-700 flex items-start gap-1">
-                                  <span className="text-indigo-400 mt-0.5">•</span>
-                                  {bullet}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Education */}
-                {parsedData.education?.length > 0 && (
-                  <div className="mb-6">
-                    <h2 className="text-sm font-bold text-indigo-950 uppercase tracking-wide mb-3 border-b border-indigo-200 pb-1">
-                      Education
-                    </h2>
-                    <div className="space-y-3">
-                      {parsedData.education.map((edu, i) => (
-                        <div key={i}>
-                          <h3 className="font-semibold text-indigo-900 text-sm">{edu.title}</h3>
-                          {(edu.institution || edu.from_date) && (
-                            <p className="text-xs text-slate-500 italic">
-                              {edu.institution}{edu.institution && edu.from_date && ' | '}{edu.from_date}{edu.to_date && ` - ${edu.to_date}`}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            ) : (
-              <div className="resume-paper bg-white rounded-sm p-8 flex flex-col items-center justify-center text-center">
-                <div className="w-16 h-16 bg-neutral-100 rounded-lg flex items-center justify-center mb-4">
-                  <FileText className="w-8 h-8 text-slate-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-slate-700 mb-2" style={{ fontFamily: 'Manrope' }}>
-                  No Preview Yet
-                </h3>
-                <p className="text-sm text-slate-500 max-w-xs">
-                  Paste your resume text and click "AI Parse" or "Simple Parse" to see the formatted preview.
-                </p>
-              </div>
-            )}
+            <ResumePreview />
           </div>
         </div>
       </div>
