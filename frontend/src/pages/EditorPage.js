@@ -1,7 +1,6 @@
 import React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { motion } from 'framer-motion';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
@@ -14,8 +13,8 @@ const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
 export default function EditorPage() {
   const navigate = useNavigate();
-  const { resumeId } = useParams();
-  const { getAuthHeaders } = useAuth();
+  const params = useParams();
+  const auth = useAuth();
   
   const [title, setTitle] = React.useState('My Resume');
   const [rawText, setRawText] = React.useState('');
@@ -27,13 +26,13 @@ export default function EditorPage() {
   const [isExisting, setIsExisting] = React.useState(false);
 
   React.useEffect(() => {
-    if (resumeId) loadResume();
-  }, [resumeId]);
+    if (params.resumeId) loadResume();
+  }, [params.resumeId]);
 
   const loadResume = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(API + '/resumes/' + resumeId, { headers: getAuthHeaders() });
+      const res = await axios.get(API + '/resumes/' + params.resumeId, { headers: auth.getAuthHeaders() });
       setTitle(res.data.title);
       setRawText(res.data.raw_text);
       setParsedData(res.data.parsed_data);
@@ -64,11 +63,11 @@ export default function EditorPage() {
     if (!parsedData) { toast.error('Parse first'); return; }
     setSaving(true);
     try {
-      if (isExisting && resumeId) {
-        await axios.put(API + '/resumes/' + resumeId, { title, raw_text: rawText, parsed_data: parsedData }, { headers: getAuthHeaders() });
+      if (isExisting && params.resumeId) {
+        await axios.put(API + '/resumes/' + params.resumeId, { title, raw_text: rawText, parsed_data: parsedData }, { headers: auth.getAuthHeaders() });
         toast.success('Updated!');
       } else {
-        const res = await axios.post(API + '/resumes', { title, raw_text: rawText, parsed_data: parsedData }, { headers: getAuthHeaders() });
+        const res = await axios.post(API + '/resumes', { title, raw_text: rawText, parsed_data: parsedData }, { headers: auth.getAuthHeaders() });
         setIsExisting(true);
         navigate('/editor/' + res.data.id, { replace: true });
         toast.success('Saved!');
@@ -149,7 +148,7 @@ export default function EditorPage() {
         <div className="w-[45%] bg-neutral-100 p-8 overflow-auto">
           <h3 className="text-sm font-semibold text-slate-600 uppercase mb-4">Preview</h3>
           {parsedData ? (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white p-8 shadow-xl" style={{ aspectRatio: '1/1.414' }} data-testid="resume-preview">
+            <div className="bg-white p-8 shadow-xl" style={{ aspectRatio: '1/1.414' }} data-testid="resume-preview">
               {parsedData.name && <h1 className="text-2xl font-bold text-indigo-950 mb-1">{parsedData.name}</h1>}
               <div className="flex gap-3 text-sm text-slate-600 mb-6">
                 {parsedData.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{parsedData.email}</span>}
@@ -157,10 +156,10 @@ export default function EditorPage() {
               </div>
               {parsedData.professional_summary && <div className="mb-4"><h2 className="text-sm font-bold uppercase border-b pb-1 mb-2">Summary</h2><p className="text-sm">{parsedData.professional_summary}</p></div>}
               {parsedData.technical_skills && parsedData.technical_skills.length > 0 && <div className="mb-4"><h2 className="text-sm font-bold uppercase border-b pb-1 mb-2">Skills</h2><div className="flex flex-wrap gap-1">{parsedData.technical_skills.map((s,i) => <span key={i} className="px-2 py-1 bg-lime-100 text-xs">{s}</span>)}</div></div>}
-              {parsedData.experiences && parsedData.experiences.length > 0 && <div className="mb-4"><h2 className="text-sm font-bold uppercase border-b pb-1 mb-2">Experience</h2>{parsedData.experiences.map((e,i) => <div key={i} className="mb-2"><strong className="text-sm">{e.title}</strong><p className="text-xs text-slate-500">{e.company} | {e.from_date} - {e.to_date}</p>{e.bullets && e.bullets.map((b,j) => <p key={j} className="text-xs ml-2">• {b}</p>)}</div>)}</div>}
+              {parsedData.experiences && parsedData.experiences.length > 0 && <div className="mb-4"><h2 className="text-sm font-bold uppercase border-b pb-1 mb-2">Experience</h2>{parsedData.experiences.map((exp,i) => <div key={i} className="mb-2"><strong className="text-sm">{exp.title}</strong><p className="text-xs text-slate-500">{exp.company} | {exp.from_date} - {exp.to_date}</p>{exp.bullets && exp.bullets.map((b,j) => <p key={j} className="text-xs ml-2">• {b}</p>)}</div>)}</div>}
               {parsedData.projects && parsedData.projects.length > 0 && <div className="mb-4"><h2 className="text-sm font-bold uppercase border-b pb-1 mb-2">Projects</h2>{parsedData.projects.map((p,i) => <div key={i} className="mb-2"><strong className="text-sm">{p.title}</strong>{p.bullets && p.bullets.map((b,j) => <p key={j} className="text-xs ml-2">• {b}</p>)}</div>)}</div>}
-              {parsedData.education && parsedData.education.length > 0 && <div><h2 className="text-sm font-bold uppercase border-b pb-1 mb-2">Education</h2>{parsedData.education.map((e,i) => <div key={i}><strong className="text-sm">{e.title}</strong><p className="text-xs text-slate-500">{e.institution}</p></div>)}</div>}
-            </motion.div>
+              {parsedData.education && parsedData.education.length > 0 && <div><h2 className="text-sm font-bold uppercase border-b pb-1 mb-2">Education</h2>{parsedData.education.map((edu,i) => <div key={i}><strong className="text-sm">{edu.title}</strong><p className="text-xs text-slate-500">{edu.institution}</p></div>)}</div>}
+            </div>
           ) : (
             <div className="bg-white p-8 shadow-xl flex flex-col items-center justify-center" style={{ aspectRatio: '1/1.414' }}>
               <FileText className="w-12 h-12 text-slate-300 mb-4" />
