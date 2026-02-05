@@ -4,7 +4,7 @@ require("dotenv").config();
 
 // Check if we're in development/preview mode (not production build)
 // Craco sets NODE_ENV=development for start, NODE_ENV=production for build
-const isDevServer = process.env.NODE_ENV !== "production";
+const isDevServer = false; // Temporarily disabled for debugging
 
 // Environment variable overrides
 const config = {
