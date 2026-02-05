@@ -1,0 +1,141 @@
+{
+  "identity": {
+    "persona": "E1",
+    "mission": "Create a resume builder that feels like a Swiss design studio tool, not a generic form filler.",
+    "principles": [
+      "Fusion over Imitation: Mix Productivity Tool precision with Swiss Poster aesthetics.",
+      "Emotion First: Confidence, Clarity, Authority.",
+      "Content is King: The resume content is the hero; the UI is the frame.",
+      "Negative Space: Extreme breathing room to reduce anxiety.",
+      "Contrast: High contrast for readability and impact."
+    ]
+  },
+  "typography": {
+    "headings": {
+      "family": "Manrope, sans-serif",
+      "weights": ["600", "800"],
+      "usage": "Headings, Hero Text, Section Titles",
+      "letterSpacing": "tracking-tight"
+    },
+    "body": {
+      "family": "DM Sans, sans-serif",
+      "weights": ["400", "500"],
+      "usage": "Body text, Inputs, Resume Content",
+      "letterSpacing": "tracking-normal"
+    },
+    "mono": {
+      "family": "JetBrains Mono, monospace",
+      "usage": "Code snippets, Technical skills, Data values"
+    },
+    "installation": "Import from Google Fonts: https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;500;700&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;600;800&display=swap"
+  },
+  "colors": {
+    "palette": {
+      "primary": {
+        "name": "Deep Indigo",
+        "hex": "#1E1B4B",
+        "tailwind": "bg-indigo-950",
+        "usage": "Primary Buttons, Hero Backgrounds, Text High Emphasis"
+      },
+      "secondary": {
+        "name": "Electric Lime",
+        "hex": "#D9F99D",
+        "tailwind": "bg-lime-200",
+        "usage": "Accents, Success States, Highlights, 'Hired' moments"
+      },
+      "background": {
+        "name": "Swiss White",
+        "hex": "#FDFDFD",
+        "tailwind": "bg-neutral-50",
+        "usage": "Main Background"
+      },
+      "surface": {
+        "name": "Paper White",
+        "hex": "#FFFFFF",
+        "tailwind": "bg-white",
+        "usage": "Cards, Resume Preview Sheet"
+      },
+      "text": {
+        "primary": "#0F172A",
+        "secondary": "#475569",
+        "muted": "#94A3B8"
+      }
+    },
+    "theme_strategy": "Light Mode Primary. Dark Mode available but secondary. The Light mode should feel like high-quality paper.",
+    "gradients": "NO generic gradients. Use subtle noise textures or solid blocks of color."
+  },
+  "layout": {
+    "grid_system": {
+      "marketing": "The Tetris Grid (Mode A). Asymmetric, bold, artistic.",
+      "app": "Split Screen. Left: Editor (Scrollable), Right: Preview (Sticky/Fixed).",
+      "dashboard": "Bento Grid (Mode B). Dense, data-rich."
+    },
+    "spacing": {
+      "scale": "Generous. Use p-8, p-12, p-16. Avoid cramped p-4 layouts.",
+      "containers": "Containers with borders MUST have internal padding (p-6 or p-8)."
+    },
+    "alignment": "Optical alignment. Left align text. Center align only for specific Hero moments."
+  },
+  "components": {
+    "style_guide": {
+      "radius": "rounded-sm (2px) or rounded-md (6px). Avoid fully rounded 'pill' shapes for containers. Keep it sharp and professional.",
+      "shadows": "shadow-sm for cards. shadow-xl for the Resume Preview sheet (to make it pop like paper).",
+      "borders": "1px solid border-neutral-200. Active states: border-indigo-900."
+    },
+    "shadcn_customization": {
+      "buttons": "Sharp edges or slightly rounded. Primary: Indigo-950 text-white. Secondary: Lime-200 text-indigo-950.",
+      "inputs": "High height (h-12). Background white. Border neutral-300. Focus: Ring-2 Ring-indigo-500.",
+      "cards": "Flat, bordered, no shadow by default. Hover: Lift + Shadow.",
+      "dialogs": "Backdrop blur-sm. Sharp corners."
+    },
+    "specific_components": {
+      "resume_preview": "Must look like an A4 sheet. Aspect ratio 1:1.414. White background, drop-shadow-2xl.",
+      "editor_form": "Accordion style sections for 'Experience', 'Education' to save space."
+    }
+  },
+  "visual_enhancers": {
+    "textures": "Subtle grain overlay on the background to reduce digital flatness.",
+    "decorations": "Use abstract geometric shapes (Swiss Style) in the background of the Landing Page.",
+    "motion": {
+      "library": "framer-motion",
+      "transitions": "Smooth, spring-based. No linear ease.",
+      "micro_interactions": "Buttons scale down slightly on click (0.98). Inputs glow on focus."
+    }
+  },
+  "images": {
+    "hero_workspace": {
+      "url": "https://images.unsplash.com/photo-1760536928911-40831dacdbc3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2Mzl8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBtaW5pbWFsaXN0JTIwd29ya3NwYWNlJTIwbGFwdG9wfGVufDB8fHx8MTc3MDI2MDc3MHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Modern minimalist workspace with laptop",
+      "usage": "Hero Section Background or Side Image"
+    },
+    "success_moment": {
+      "url": "https://images.unsplash.com/photo-1758520144427-ddb02ac74e9d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTN8MHwxfHNlYXJjaHwxfHxoaXJlZCUyMHN1Y2Nlc3MlMjBqb2IlMjBvZmZlciUyMGhhbmRzaGFrZXxlbnwwfHx8fDE3NzAyNjA3NzV8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Successful hiring moment, handshake",
+      "usage": "Testimonials or 'Get Hired' section"
+    },
+    "team_collaboration": {
+      "url": "https://images.unsplash.com/photo-1758518729685-f88df7890776?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBvZmZpY2UlMjB0ZWFtJTIwY29sbGFib3JhdGlvbnxlbnwwfHx8fDE3NzAyNjA3Nzl8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Team collaborating in modern office",
+      "usage": "About Us or Features section"
+    }
+  },
+  "universal_guidelines": {
+    "anti_patterns": [
+      "NO generic 'SaaS Blue' gradients.",
+      "NO 'Inter' font for headings.",
+      "NO center-aligned text blocks (unless Hero).",
+      "NO low-contrast text (gray on gray)."
+    ],
+    "accessibility": {
+      "contrast": "Ensure WCAG AA compliance. Dark text on light background.",
+      "focus_states": "Visible focus rings for keyboard navigation.",
+      "testing": "All interactive elements must have data-testid attributes."
+    },
+    "code_conventions": {
+      "components": "Use named exports.",
+      "styling": "Tailwind CSS for layout, Shadcn for logic.",
+      "icons": "lucide-react"
+    }
+  },
+  "instructions_to_main_agent": "You are building a Resume Formatter. Focus on the 'Editor' experience. It should feel like a powerful tool. The Preview should update in real-time. Use the provided images to create a professional atmosphere. Implement the 'Swiss Grid' for the landing page. Use the 'Deep Indigo' and 'Electric Lime' palette to stand out."
+}
