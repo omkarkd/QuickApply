@@ -18,8 +18,10 @@ from datetime import datetime, timezone
 import jwt
 import bcrypt
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt, Inches, RGBColor, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
