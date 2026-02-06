@@ -618,22 +618,82 @@ async def download_pdf(resume_data: ResumeData):
 
 @api_router.post("/download/docx")
 async def download_docx(resume_data: ResumeData):
-    """Generate DOCX from parsed resume data"""
+    """Generate DOCX from parsed resume data with professional formatting"""
     doc = Document()
     
-    # Set up styles
-    style = doc.styles['Normal']
-    style.font.name = 'Arial'
-    style.font.size = Pt(10)
+    # Helper function to add horizontal line under section headers
+    def add_horizontal_line(paragraph):
+        p = paragraph._element
+        pPr = p.get_or_add_pPr()
+        pBdr = OxmlElement('w:pBdr')
+        bottom = OxmlElement('w:bottom')
+        bottom.set(qn('w:val'), 'single')
+        bottom.set(qn('w:sz'), '12')
+        bottom.set(qn('w:space'), '1')
+        bottom.set(qn('w:color'), '000000')
+        pBdr.append(bottom)
+        pPr.append(pBdr)
     
-    # Name
+    # Helper function to calculate tab stop for right-aligned dates
+    def calculate_tab_stop(section, margin_from_edge_cm=0.2, page_width_cm=21.59):
+        left_cm = section.left_margin.cm
+        right_cm = section.right_margin.cm
+        usable_cm = page_width_cm - left_cm - right_cm
+        tab_cm = usable_cm - margin_from_edge_cm
+        tab_in = tab_cm / 2.54
+        return Inches(tab_in)
+    
+    # Helper function to add experience/project entry with right-aligned date
+    def add_entry_with_date(doc, section, title, subtitle, date_str, title_size=14, subtitle_size=14):
+        para = doc.add_paragraph()
+        # Title
+        title_run = para.add_run(title)
+        title_run.font.size = Pt(title_size)
+        title_run.font.bold = False
+        
+        if subtitle:
+            sep = para.add_run(' - ')
+            sep.font.size = Pt(title_size)
+            sub_run = para.add_run(subtitle)
+            sub_run.font.size = Pt(subtitle_size)
+            sub_run.font.bold = False
+        
+        if date_str:
+            # Calculate and add tab stop for right alignment
+            tab_pos = calculate_tab_stop(section, margin_from_edge_cm=0.2)
+            para.paragraph_format.tab_stops.add_tab_stop(tab_pos, WD_TAB_ALIGNMENT.RIGHT)
+            date_run = para.add_run('\t' + date_str)
+            date_run.font.size = Pt(12)
+        
+        para.paragraph_format.left_indent = Inches(0.0)
+        return para
+    
+    # Set default document font to Aptos
+    try:
+        style = doc.styles['Normal']
+        style.font.name = 'Aptos'
+        style.font.size = Pt(12)
+        style._element.rPr.rFonts.set(qn('w:eastAsia'), 'Aptos')
+    except Exception:
+        style = doc.styles['Normal']
+        style.font.name = 'Arial'
+        style.font.size = Pt(12)
+    
+    # Set narrow margins (1.27 cm)
+    sections = doc.sections
+    section = sections[0]
+    for sec in sections:
+        sec.top_margin = Cm(1.27)
+        sec.bottom_margin = Cm(1.27)
+        sec.left_margin = Cm(1.27)
+        sec.right_margin = Cm(1.27)
+    
+    # Name Header
     if resume_data.name:
         name_para = doc.add_paragraph()
         name_run = name_para.add_run(resume_data.name)
         name_run.bold = True
-        name_run.font.size = Pt(18)
-        name_run.font.color.rgb = RGBColor(30, 27, 75)
-        name_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        name_run.font.size = Pt(16)
     
     # Contact Info
     contact_parts = []
@@ -642,109 +702,102 @@ async def download_docx(resume_data: ResumeData):
     if resume_data.linkedin:
         contact_parts.append(resume_data.linkedin)
     if contact_parts:
-        contact_para = doc.add_paragraph(" | ".join(contact_parts))
-        contact_para.runs[0].font.color.rgb = RGBColor(71, 85, 105)
+        contact_para = doc.add_paragraph(' | '.join(contact_parts))
+        if contact_para.runs:
+            contact_para.runs[0].font.size = Pt(10)
     
     # Professional Summary
     if resume_data.professional_summary:
-        doc.add_paragraph()
-        heading = doc.add_paragraph()
-        heading_run = heading.add_run("PROFESSIONAL SUMMARY")
-        heading_run.bold = True
-        heading_run.font.size = Pt(12)
-        heading_run.font.color.rgb = RGBColor(30, 27, 75)
+        sh = doc.add_paragraph()
+        sh_run = sh.add_run('PROFESSIONAL SUMMARY')
+        sh_run.font.size = Pt(14)
+        sh_run.bold = True
+        add_horizontal_line(sh)
         doc.add_paragraph(resume_data.professional_summary)
     
     # Technical Skills
     if resume_data.technical_skills:
+        sk = doc.add_paragraph()
+        sk_run = sk.add_run('TECHNICAL SKILLS')
+        sk_run.font.size = Pt(14)
+        sk_run.bold = True
+        add_horizontal_line(sk)
+        
+        skills_para = doc.add_paragraph()
+        skills_run = skills_para.add_run('Skills: ')
+        skills_run.bold = True
+        skills_para.add_run(', '.join(resume_data.technical_skills))
+        
         doc.add_paragraph()
-        heading = doc.add_paragraph()
-        heading_run = heading.add_run("TECHNICAL SKILLS")
-        heading_run.bold = True
-        heading_run.font.size = Pt(12)
-        heading_run.font.color.rgb = RGBColor(30, 27, 75)
-        doc.add_paragraph(", ".join(resume_data.technical_skills))
     
-    # Experience
+    # Professional Experience
     if resume_data.experiences:
-        doc.add_paragraph()
-        heading = doc.add_paragraph()
-        heading_run = heading.add_run("EXPERIENCE")
-        heading_run.bold = True
-        heading_run.font.size = Pt(12)
-        heading_run.font.color.rgb = RGBColor(30, 27, 75)
+        eh = doc.add_paragraph()
+        eh_run = eh.add_run('PROFESSIONAL EXPERIENCE')
+        eh_run.font.size = Pt(14)
+        eh_run.bold = True
+        add_horizontal_line(eh)
         
         for exp in resume_data.experiences:
-            if exp.get("title"):
-                title_para = doc.add_paragraph()
-                title_run = title_para.add_run(exp["title"])
-                title_run.bold = True
-                title_run.font.size = Pt(11)
-            
+            title = exp.get("title", "")
             company = exp.get("company", "")
             from_date = exp.get("from_date", "")
             to_date = exp.get("to_date", "")
-            if company or from_date:
-                date_str = f"{from_date} - {to_date}" if from_date else ""
-                company_str = f"{company} | {date_str}" if company and date_str else company or date_str
-                company_para = doc.add_paragraph()
-                company_run = company_para.add_run(company_str)
-                company_run.italic = True
-                company_run.font.color.rgb = RGBColor(71, 85, 105)
+            date_str = f"{from_date} - {to_date}".strip(' -') if from_date or to_date else ""
+            
+            add_entry_with_date(doc, section, title, company, date_str)
             
             for bullet in exp.get("bullets", []):
-                bullet_para = doc.add_paragraph(f"• {bullet}")
-                bullet_para.paragraph_format.left_indent = Inches(0.25)
+                doc.add_paragraph(bullet, style='List Bullet')
+        
+        doc.add_paragraph()
     
     # Projects
     if resume_data.projects:
-        doc.add_paragraph()
-        heading = doc.add_paragraph()
-        heading_run = heading.add_run("PROJECTS")
-        heading_run.bold = True
-        heading_run.font.size = Pt(12)
-        heading_run.font.color.rgb = RGBColor(30, 27, 75)
+        pj = doc.add_paragraph()
+        pj_run = pj.add_run('PROJECTS')
+        pj_run.font.size = Pt(14)
+        pj_run.bold = True
+        add_horizontal_line(pj)
         
         for proj in resume_data.projects:
-            if proj.get("title"):
-                title_para = doc.add_paragraph()
-                title_run = title_para.add_run(proj["title"])
-                title_run.bold = True
-                title_run.font.size = Pt(11)
+            title = proj.get("title", "")
+            organization = proj.get("organization", "") or proj.get("description", "")
+            from_date = proj.get("from_date", "")
+            to_date = proj.get("to_date", "")
+            date_str = f"{from_date} - {to_date}".strip(' -') if from_date or to_date else ""
             
-            if proj.get("description"):
-                doc.add_paragraph(proj["description"])
+            add_entry_with_date(doc, section, title, organization, date_str)
             
             for bullet in proj.get("bullets", []):
-                bullet_para = doc.add_paragraph(f"• {bullet}")
-                bullet_para.paragraph_format.left_indent = Inches(0.25)
+                doc.add_paragraph(bullet, style='List Bullet')
+        
+        doc.add_paragraph()
     
     # Education
     if resume_data.education:
-        doc.add_paragraph()
-        heading = doc.add_paragraph()
-        heading_run = heading.add_run("EDUCATION")
-        heading_run.bold = True
-        heading_run.font.size = Pt(12)
-        heading_run.font.color.rgb = RGBColor(30, 27, 75)
+        ed = doc.add_paragraph()
+        ed_run = ed.add_run('EDUCATION')
+        ed_run.font.size = Pt(14)
+        ed_run.bold = True
+        add_horizontal_line(ed)
         
         for edu in resume_data.education:
-            if edu.get("title"):
-                title_para = doc.add_paragraph()
-                title_run = title_para.add_run(edu["title"])
-                title_run.bold = True
-                title_run.font.size = Pt(11)
-            
+            title = edu.get("title", "")
             institution = edu.get("institution", "")
             from_date = edu.get("from_date", "")
             to_date = edu.get("to_date", "")
-            if institution or from_date:
-                date_str = f"{from_date} - {to_date}" if from_date else ""
-                inst_str = f"{institution} | {date_str}" if institution and date_str else institution or date_str
+            
+            if institution:
                 inst_para = doc.add_paragraph()
-                inst_run = inst_para.add_run(inst_str)
-                inst_run.italic = True
-                inst_run.font.color.rgb = RGBColor(71, 85, 105)
+                inst_run = inst_para.add_run(institution)
+                inst_run.bold = True
+            
+            date_str = f"{from_date} - {to_date}".strip(' -') if from_date or to_date else ""
+            line = title
+            if date_str:
+                line = f"{title} | {date_str}"
+            doc.add_paragraph(line)
     
     buffer = io.BytesIO()
     doc.save(buffer)
