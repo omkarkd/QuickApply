@@ -464,19 +464,33 @@ async def delete_resume(resume_id: str, current_user: dict = Depends(get_current
 
 @api_router.post("/download/pdf")
 async def download_pdf(resume_data: ResumeData):
-    """Generate PDF from parsed resume data"""
+    """Generate PDF from parsed resume data with professional formatting"""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
     
-    y = height - 0.75 * inch
-    left_margin = 0.75 * inch
+    # Narrow margins (0.5 inch = 1.27 cm equivalent)
+    left_margin = 0.5 * inch
+    right_margin = width - 0.5 * inch
+    usable_width = right_margin - left_margin
+    
+    y = height - 0.5 * inch
     
     def draw_text(text, x, y_pos, font="Helvetica", size=10, color=colors.black):
         c.setFont(font, size)
         c.setFillColor(color)
         c.drawString(x, y_pos, text)
         return y_pos
+    
+    def draw_right_text(text, y_pos, font="Helvetica", size=10):
+        c.setFont(font, size)
+        c.drawRightString(right_margin, y_pos, text)
+    
+    def draw_horizontal_line(y_pos):
+        c.setStrokeColor(colors.black)
+        c.setLineWidth(0.5)
+        c.line(left_margin, y_pos, right_margin, y_pos)
+        return y_pos - 0.1 * inch
     
     def wrap_text(text, max_width, font, size):
         c.setFont(font, size)
@@ -495,10 +509,16 @@ async def download_pdf(resume_data: ResumeData):
             lines.append(current_line)
         return lines
     
+    def check_page_break(y_pos, needed=1.5):
+        if y_pos < needed * inch:
+            c.showPage()
+            return height - 0.5 * inch
+        return y_pos
+    
     # Name
     if resume_data.name:
-        y = draw_text(resume_data.name, left_margin, y, "Helvetica-Bold", 18, colors.HexColor("#1E1B4B"))
-        y -= 0.25 * inch
+        y = draw_text(resume_data.name, left_margin, y, "Helvetica-Bold", 16)
+        y -= 0.22 * inch
     
     # Contact Info
     contact_parts = []
@@ -508,26 +528,65 @@ async def download_pdf(resume_data: ResumeData):
         contact_parts.append(resume_data.linkedin)
     if contact_parts:
         y = draw_text(" | ".join(contact_parts), left_margin, y, "Helvetica", 10, colors.HexColor("#475569"))
-        y -= 0.4 * inch
+        y -= 0.35 * inch
     
     # Professional Summary
     if resume_data.professional_summary:
-        y = draw_text("PROFESSIONAL SUMMARY", left_margin, y, "Helvetica-Bold", 12, colors.HexColor("#1E1B4B"))
-        y -= 0.2 * inch
-        lines = wrap_text(resume_data.professional_summary, width - 1.5 * inch, "Helvetica", 10)
+        y = draw_text("PROFESSIONAL SUMMARY", left_margin, y, "Helvetica-Bold", 14)
+        y -= 0.05 * inch
+        y = draw_horizontal_line(y)
+        y -= 0.1 * inch
+        lines = wrap_text(resume_data.professional_summary, usable_width, "Helvetica", 12)
         for line in lines:
-            y = draw_text(line, left_margin, y, "Helvetica", 10)
-            y -= 0.18 * inch
-        y -= 0.2 * inch
+            y = draw_text(line, left_margin, y, "Helvetica", 12)
+            y -= 0.2 * inch
+        y -= 0.15 * inch
     
     # Technical Skills
     if resume_data.technical_skills:
-        y = draw_text("TECHNICAL SKILLS", left_margin, y, "Helvetica-Bold", 12, colors.HexColor("#1E1B4B"))
-        y -= 0.2 * inch
-        skills_text = ", ".join(resume_data.technical_skills)
-        lines = wrap_text(skills_text, width - 1.5 * inch, "Helvetica", 10)
+        y = check_page_break(y)
+        y = draw_text("TECHNICAL SKILLS", left_margin, y, "Helvetica-Bold", 14)
+        y -= 0.05 * inch
+        y = draw_horizontal_line(y)
+        y -= 0.1 * inch
+        skills_text = "Skills: " + ", ".join(resume_data.technical_skills)
+        lines = wrap_text(skills_text, usable_width, "Helvetica", 12)
         for line in lines:
-            y = draw_text(line, left_margin, y, "Helvetica", 10)
+            y = draw_text(line, left_margin, y, "Helvetica", 12)
+            y -= 0.2 * inch
+        y -= 0.15 * inch
+    
+    # Experience
+    if resume_data.experiences:
+        y = check_page_break(y)
+        y = draw_text("PROFESSIONAL EXPERIENCE", left_margin, y, "Helvetica-Bold", 14)
+        y -= 0.05 * inch
+        y = draw_horizontal_line(y)
+        y -= 0.1 * inch
+        
+        for exp in resume_data.experiences:
+            y = check_page_break(y)
+            title = exp.get("title", "")
+            company = exp.get("company", "")
+            from_date = exp.get("from_date", "")
+            to_date = exp.get("to_date", "")
+            date_str = f"{from_date} - {to_date}".strip(' -') if from_date or to_date else ""
+            
+            # Title - Company on left, Date on right
+            left_text = f"{title} - {company}" if company else title
+            y = draw_text(left_text, left_margin, y, "Helvetica", 14)
+            if date_str:
+                draw_right_text(date_str, y, "Helvetica", 12)
+            y -= 0.22 * inch
+            
+            for bullet in exp.get("bullets", []):
+                y = check_page_break(y)
+                lines = wrap_text(f"• {bullet}", usable_width - 0.25 * inch, "Helvetica", 12)
+                for line in lines:
+                    y = draw_text(line, left_margin + 0.15 * inch, y, "Helvetica", 12)
+                    y -= 0.18 * inch
+            y -= 0.1 * inch
+        y -= 0.1 * inch
             y -= 0.18 * inch
         y -= 0.2 * inch
     
