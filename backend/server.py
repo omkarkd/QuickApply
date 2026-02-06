@@ -587,84 +587,63 @@ async def download_pdf(resume_data: ResumeData):
                     y -= 0.18 * inch
             y -= 0.1 * inch
         y -= 0.1 * inch
-            y -= 0.18 * inch
-        y -= 0.2 * inch
-    
-    # Experience
-    if resume_data.experiences:
-        y = draw_text("EXPERIENCE", left_margin, y, "Helvetica-Bold", 12, colors.HexColor("#1E1B4B"))
-        y -= 0.2 * inch
-        for exp in resume_data.experiences:
-            title = exp.get("title", "")
-            company = exp.get("company", "")
-            from_date = exp.get("from_date", "")
-            to_date = exp.get("to_date", "")
-            
-            if title:
-                y = draw_text(title, left_margin, y, "Helvetica-Bold", 11)
-                y -= 0.18 * inch
-            if company or from_date:
-                date_str = f"{from_date} - {to_date}" if from_date else ""
-                company_str = f"{company} | {date_str}" if company and date_str else company or date_str
-                y = draw_text(company_str, left_margin, y, "Helvetica-Oblique", 10, colors.HexColor("#475569"))
-                y -= 0.18 * inch
-            
-            for bullet in exp.get("bullets", []):
-                lines = wrap_text(f"• {bullet}", width - 1.75 * inch, "Helvetica", 10)
-                for line in lines:
-                    y = draw_text(line, left_margin + 0.15 * inch, y, "Helvetica", 10)
-                    y -= 0.16 * inch
-            y -= 0.15 * inch
-            
-            if y < 1.5 * inch:
-                c.showPage()
-                y = height - 0.75 * inch
     
     # Projects
     if resume_data.projects:
-        y = draw_text("PROJECTS", left_margin, y, "Helvetica-Bold", 12, colors.HexColor("#1E1B4B"))
-        y -= 0.2 * inch
+        y = check_page_break(y)
+        y = draw_text("PROJECTS", left_margin, y, "Helvetica-Bold", 14)
+        y -= 0.05 * inch
+        y = draw_horizontal_line(y)
+        y -= 0.1 * inch
+        
         for proj in resume_data.projects:
+            y = check_page_break(y)
             title = proj.get("title", "")
-            if title:
-                y = draw_text(title, left_margin, y, "Helvetica-Bold", 11)
-                y -= 0.18 * inch
-            desc = proj.get("description", "")
-            if desc:
-                lines = wrap_text(desc, width - 1.5 * inch, "Helvetica", 10)
-                for line in lines:
-                    y = draw_text(line, left_margin, y, "Helvetica", 10)
-                    y -= 0.16 * inch
-            for bullet in proj.get("bullets", []):
-                lines = wrap_text(f"• {bullet}", width - 1.75 * inch, "Helvetica", 10)
-                for line in lines:
-                    y = draw_text(line, left_margin + 0.15 * inch, y, "Helvetica", 10)
-                    y -= 0.16 * inch
-            y -= 0.15 * inch
+            org = proj.get("organization", "") or proj.get("description", "")
+            from_date = proj.get("from_date", "")
+            to_date = proj.get("to_date", "")
+            date_str = f"{from_date} - {to_date}".strip(' -') if from_date or to_date else ""
             
-            if y < 1.5 * inch:
-                c.showPage()
-                y = height - 0.75 * inch
+            left_text = f"{title} - {org}" if org else title
+            y = draw_text(left_text, left_margin, y, "Helvetica", 14)
+            if date_str:
+                draw_right_text(date_str, y, "Helvetica", 12)
+            y -= 0.22 * inch
+            
+            for bullet in proj.get("bullets", []):
+                y = check_page_break(y)
+                lines = wrap_text(f"• {bullet}", usable_width - 0.25 * inch, "Helvetica", 12)
+                for line in lines:
+                    y = draw_text(line, left_margin + 0.15 * inch, y, "Helvetica", 12)
+                    y -= 0.18 * inch
+            y -= 0.1 * inch
+        y -= 0.1 * inch
     
     # Education
     if resume_data.education:
-        y = draw_text("EDUCATION", left_margin, y, "Helvetica-Bold", 12, colors.HexColor("#1E1B4B"))
-        y -= 0.2 * inch
+        y = check_page_break(y)
+        y = draw_text("EDUCATION", left_margin, y, "Helvetica-Bold", 14)
+        y -= 0.05 * inch
+        y = draw_horizontal_line(y)
+        y -= 0.1 * inch
+        
         for edu in resume_data.education:
+            y = check_page_break(y)
             title = edu.get("title", "")
             institution = edu.get("institution", "")
             from_date = edu.get("from_date", "")
             to_date = edu.get("to_date", "")
+            date_str = f"{from_date} - {to_date}".strip(' -') if from_date or to_date else ""
             
-            if title:
-                y = draw_text(title, left_margin, y, "Helvetica-Bold", 11)
-                y -= 0.18 * inch
-            if institution or from_date:
-                date_str = f"{from_date} - {to_date}" if from_date else ""
-                inst_str = f"{institution} | {date_str}" if institution and date_str else institution or date_str
-                y = draw_text(inst_str, left_margin, y, "Helvetica-Oblique", 10, colors.HexColor("#475569"))
-                y -= 0.18 * inch
-            y -= 0.1 * inch
+            if institution:
+                y = draw_text(institution, left_margin, y, "Helvetica-Bold", 12)
+                y -= 0.2 * inch
+            
+            line = title
+            if date_str:
+                line = f"{title} | {date_str}"
+            y = draw_text(line, left_margin, y, "Helvetica", 12)
+            y -= 0.2 * inch
     
     c.save()
     buffer.seek(0)
