@@ -36,8 +36,6 @@ load_dotenv(ROOT_DIR / '.env')
 
 # Telegram Bot States
 CHOOSING, WAITING_FOR_TEXT = range(2)
-telegram_app = None
-telegram_thread = None
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
