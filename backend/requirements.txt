@@ -70,7 +70,7 @@ iniconfig==2.3.0
 instructor==1.12.0
 isort==7.0.0
 Jinja2==3.1.6
-jiter==0.10.0
+jiter==0.13.0
 jmespath==1.1.0
 jq==1.11.0
 json5==0.10.0
@@ -98,7 +98,7 @@ nodeenv==1.10.0
 numpy==2.4.2
 oauthlib==3.3.1
 onnxruntime==1.24.1
-openai==1.83.0
+openai==1.99.9
 openpyxl==3.1.5
 opentelemetry-api==1.34.1
 opentelemetry-exporter-otlp-proto-common==1.34.1
@@ -131,9 +131,9 @@ pyasn1_modules==0.4.2
 pybase64==1.4.3
 pycodestyle==2.14.0
 pycparser==3.0
-pydantic==2.11.10
+pydantic==2.12.5
 pydantic-settings==2.10.1
-pydantic_core==2.33.2
+pydantic_core==2.41.5
 pyflakes==3.4.0
 Pygments==2.19.2
 PyJWT==2.11.0
