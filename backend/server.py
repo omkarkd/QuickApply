@@ -509,6 +509,402 @@ async def delete_resume(resume_id: str, current_user: dict = Depends(get_current
         raise HTTPException(status_code=404, detail="Resume not found")
     return {"message": "Resume deleted successfully"}
 
+# ==================== JD Parse Routes ====================
+
+@api_router.post("/parse/jd/simple")
+async def parse_jd_simple(request: ParseRequest):
+    """Simple regex-based JD parsing"""
+    text = request.text
+    
+    # Extract job title (usually first line or after common headers)
+    job_title = ""
+    lines = text.strip().split('\n')
+    if lines:
+        job_title = lines[0].strip()
+    
+    # Extract company name
+    company_match = re.search(r'(?:company|organization|employer)[:\s]*([^\n]+)', text, re.IGNORECASE)
+    company = company_match.group(1).strip() if company_match else ""
+    
+    # Extract location
+    location_match = re.search(r'(?:location|city|place)[:\s]*([^\n]+)', text, re.IGNORECASE)
+    location = location_match.group(1).strip() if location_match else ""
+    
+    # Extract experience required
+    exp_match = re.search(r'(\d+[\+\-]?\s*(?:to\s*\d+)?\s*years?)', text, re.IGNORECASE)
+    experience_required = exp_match.group(1) if exp_match else ""
+    
+    # Extract salary range
+    salary_match = re.search(r'(?:salary|compensation|pay)[:\s]*([^\n]+)', text, re.IGNORECASE)
+    salary_range = salary_match.group(1).strip() if salary_match else ""
+    
+    # Extract job type
+    job_type = "Full-time"  # Default
+    if re.search(r'part[\s-]?time', text, re.IGNORECASE):
+        job_type = "Part-time"
+    elif re.search(r'contract', text, re.IGNORECASE):
+        job_type = "Contract"
+    elif re.search(r'freelance', text, re.IGNORECASE):
+        job_type = "Freelance"
+    
+    # Extract skills
+    skills = []
+    skills_section = re.search(r'(?:skills|requirements|qualifications|technologies)[:\s]*([^#]+?)(?=\n\n|\n[A-Z]|$)', text, re.IGNORECASE | re.DOTALL)
+    if skills_section:
+        skills_text = skills_section.group(1)
+        skills = re.split(r'[,\n•\-\|]', skills_text)
+        skills = [s.strip() for s in skills if s.strip() and len(s.strip()) < 50]
+    
+    return {
+        "job_title": job_title,
+        "company": company,
+        "location": location,
+        "must_have_skills": skills[:len(skills)//2] if skills else [],
+        "good_to_have_skills": skills[len(skills)//2:] if skills else [],
+        "experience_required": experience_required,
+        "salary_range": salary_range,
+        "job_type": job_type,
+        "description": text[:500] if len(text) > 500 else text
+    }
+
+@api_router.post("/parse/jd/ai")
+async def parse_jd_ai(request: ParseRequest):
+    """AI-powered JD parsing using CrewAI with GPT-5.2"""
+    try:
+        api_key = os.environ.get('EMERGENT_LLM_KEY')
+        if not api_key:
+            raise HTTPException(status_code=500, detail="AI parsing not configured")
+        
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"jd-parse-{uuid.uuid4()}",
+            system_message="""You are an expert job description parser and recruiter. Extract structured data from job descriptions.
+            Carefully analyze the JD and categorize skills into "Must Have" (required/mandatory) and "Good to Have" (preferred/nice-to-have).
+            
+            Return ONLY valid JSON with this exact structure:
+            {
+                "job_title": "Job Title",
+                "company": "Company Name",
+                "location": "City, Country or Remote",
+                "must_have_skills": ["skill1", "skill2", "skill3"],
+                "good_to_have_skills": ["skill1", "skill2"],
+                "experience_required": "X-Y years or X+ years",
+                "salary_range": "Amount or range if mentioned",
+                "job_type": "Full-time/Part-time/Contract/Freelance",
+                "description": "Brief job description summary"
+            }
+            
+            Rules for skill categorization:
+            - Must Have: Skills explicitly marked as required, mandatory, essential, must have
+            - Good to Have: Skills marked as preferred, nice to have, bonus, plus, advantageous
+            - If not explicitly categorized, use context to determine importance
+            
+            Extract all information accurately. If something is not found, use empty string or empty array."""
+        ).with_model("openai", "gpt-5.2")
+        
+        user_message = UserMessage(
+            text=f"Parse this job description and return JSON:\n\n{request.text}"
+        )
+        
+        response = await chat.send_message(user_message)
+        
+        try:
+            json_str = response
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0]
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0]
+            
+            parsed = json.loads(json_str.strip())
+            return parsed
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse AI response as JSON: {response}")
+            raise HTTPException(status_code=500, detail="Failed to parse AI response")
+            
+    except Exception as e:
+        logger.error(f"AI JD parsing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI parsing failed: {str(e)}")
+
+# ==================== JD CRUD Routes ====================
+
+@api_router.post("/jds", response_model=JDResponse)
+async def create_jd(jd_data: JDCreate, current_user: dict = Depends(get_current_user)):
+    jd_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    
+    jd_doc = {
+        "id": jd_id,
+        "user_id": current_user["id"],
+        "title": jd_data.title,
+        "raw_text": jd_data.raw_text,
+        "parsed_data": jd_data.parsed_data.model_dump() if jd_data.parsed_data else None,
+        "created_at": now,
+        "updated_at": now
+    }
+    
+    await db.jds.insert_one(jd_doc)
+    return JDResponse(**{k: v for k, v in jd_doc.items() if k != "_id"})
+
+@api_router.get("/jds", response_model=List[JDResponse])
+async def list_jds(current_user: dict = Depends(get_current_user)):
+    jds = await db.jds.find(
+        {"user_id": current_user["id"]}, 
+        {"_id": 0}
+    ).sort("updated_at", -1).to_list(100)
+    return [JDResponse(**j) for j in jds]
+
+@api_router.get("/jds/{jd_id}", response_model=JDResponse)
+async def get_jd(jd_id: str, current_user: dict = Depends(get_current_user)):
+    jd = await db.jds.find_one(
+        {"id": jd_id, "user_id": current_user["id"]},
+        {"_id": 0}
+    )
+    if not jd:
+        raise HTTPException(status_code=404, detail="JD not found")
+    return JDResponse(**jd)
+
+@api_router.put("/jds/{jd_id}", response_model=JDResponse)
+async def update_jd(jd_id: str, jd_data: JDUpdate, current_user: dict = Depends(get_current_user)):
+    jd = await db.jds.find_one({"id": jd_id, "user_id": current_user["id"]})
+    if not jd:
+        raise HTTPException(status_code=404, detail="JD not found")
+    
+    update_dict = {}
+    if jd_data.title is not None:
+        update_dict["title"] = jd_data.title
+    if jd_data.raw_text is not None:
+        update_dict["raw_text"] = jd_data.raw_text
+    if jd_data.parsed_data is not None:
+        update_dict["parsed_data"] = jd_data.parsed_data.model_dump()
+    
+    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.jds.update_one({"id": jd_id}, {"$set": update_dict})
+    updated_jd = await db.jds.find_one({"id": jd_id}, {"_id": 0})
+    return JDResponse(**updated_jd)
+
+@api_router.delete("/jds/{jd_id}")
+async def delete_jd(jd_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.jds.delete_one({"id": jd_id, "user_id": current_user["id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="JD not found")
+    return {"message": "JD deleted successfully"}
+
+# ==================== Telegram Bot Routes ====================
+
+@api_router.get("/telegram/settings")
+async def get_telegram_settings(current_user: dict = Depends(get_current_user)):
+    settings = await db.telegram_settings.find_one(
+        {"user_id": current_user["id"]},
+        {"_id": 0}
+    )
+    if not settings:
+        return {"bot_token": None, "is_active": False, "chat_id": None}
+    return settings
+
+@api_router.put("/telegram/settings")
+async def update_telegram_settings(settings: TelegramSettingsUpdate, current_user: dict = Depends(get_current_user)):
+    existing = await db.telegram_settings.find_one({"user_id": current_user["id"]})
+    
+    update_dict = {"user_id": current_user["id"]}
+    if settings.bot_token is not None:
+        update_dict["bot_token"] = settings.bot_token
+    if settings.is_active is not None:
+        update_dict["is_active"] = settings.is_active
+    
+    if existing:
+        await db.telegram_settings.update_one(
+            {"user_id": current_user["id"]},
+            {"$set": update_dict}
+        )
+    else:
+        update_dict["chat_id"] = None
+        await db.telegram_settings.insert_one(update_dict)
+    
+    # Start or stop bot based on settings
+    if settings.is_active and settings.bot_token:
+        await start_telegram_bot(settings.bot_token, current_user["id"])
+    
+    updated = await db.telegram_settings.find_one(
+        {"user_id": current_user["id"]},
+        {"_id": 0}
+    )
+    return updated
+
+# Telegram Bot Handlers
+async def start_telegram_bot(bot_token: str, user_id: str):
+    """Start Telegram bot for a user"""
+    global telegram_app, telegram_thread
+    
+    try:
+        if telegram_app:
+            await telegram_app.stop()
+        
+        telegram_app = Application.builder().token(bot_token).build()
+        
+        # Conversation handler
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler("start", telegram_start), MessageHandler(filters.Regex(r'^[Hh]i'), telegram_start)],
+            states={
+                CHOOSING: [MessageHandler(filters.Regex(r'^(Resume|JD)$'), telegram_choice)],
+                WAITING_FOR_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, telegram_receive_text)],
+            },
+            fallbacks=[CommandHandler("cancel", telegram_cancel)],
+        )
+        
+        telegram_app.add_handler(conv_handler)
+        
+        # Store user_id in bot_data
+        telegram_app.bot_data["user_id"] = user_id
+        
+        # Run bot in background
+        def run_bot():
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(telegram_app.run_polling())
+        
+        telegram_thread = threading.Thread(target=run_bot, daemon=True)
+        telegram_thread.start()
+        
+        logger.info(f"Telegram bot started for user {user_id}")
+    except Exception as e:
+        logger.error(f"Failed to start Telegram bot: {str(e)}")
+
+async def telegram_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start conversation and ask Resume or JD"""
+    reply_keyboard = [["Resume", "JD"]]
+    await update.message.reply_text(
+        "Hi! I'm your Application Bot. What would you like to parse?\n\n"
+        "Choose an option:",
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True),
+    )
+    
+    # Store chat_id
+    chat_id = str(update.effective_chat.id)
+    user_id = context.application.bot_data.get("user_id")
+    if user_id:
+        await db.telegram_settings.update_one(
+            {"user_id": user_id},
+            {"$set": {"chat_id": chat_id}}
+        )
+    
+    return CHOOSING
+
+async def telegram_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Store user's choice and ask for text"""
+    choice = update.message.text
+    context.user_data["choice"] = choice
+    
+    await update.message.reply_text(
+        f"Great! Please send me your {choice} text.\n"
+        f"I'll parse it and save it for you.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return WAITING_FOR_TEXT
+
+async def telegram_receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive and parse the text"""
+    text = update.message.text
+    choice = context.user_data.get("choice", "Resume")
+    user_id = context.application.bot_data.get("user_id")
+    
+    await update.message.reply_text("Processing your text... Please wait.")
+    
+    try:
+        api_key = os.environ.get('EMERGENT_LLM_KEY')
+        
+        if choice == "Resume":
+            # Parse resume
+            chat = LlmChat(
+                api_key=api_key,
+                session_id=f"telegram-resume-{uuid.uuid4()}",
+                system_message="""You are a professional resume parser. Extract structured data from resume text.
+                Return ONLY valid JSON with: name, email, linkedin, professional_summary, technical_skills, experiences, projects, education."""
+            ).with_model("openai", "gpt-5.2")
+            
+            response = await chat.send_message(UserMessage(text=f"Parse this resume:\n{text}"))
+            
+            json_str = response
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0]
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0]
+            
+            parsed = json.loads(json_str.strip())
+            
+            # Save to database
+            resume_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc).isoformat()
+            await db.resumes.insert_one({
+                "id": resume_id,
+                "user_id": user_id,
+                "title": f"Telegram Resume - {now[:10]}",
+                "raw_text": text,
+                "parsed_data": parsed,
+                "created_at": now,
+                "updated_at": now
+            })
+            
+            await update.message.reply_text(
+                f"✅ Resume parsed and saved!\n\n"
+                f"Name: {parsed.get('name', 'N/A')}\n"
+                f"Skills: {', '.join(parsed.get('technical_skills', [])[:5])}\n\n"
+                f"View it in your dashboard!"
+            )
+        else:
+            # Parse JD
+            chat = LlmChat(
+                api_key=api_key,
+                session_id=f"telegram-jd-{uuid.uuid4()}",
+                system_message="""You are a job description parser. Extract: job_title, company, location, must_have_skills, good_to_have_skills, experience_required, salary_range, job_type.
+                Return ONLY valid JSON."""
+            ).with_model("openai", "gpt-5.2")
+            
+            response = await chat.send_message(UserMessage(text=f"Parse this JD:\n{text}"))
+            
+            json_str = response
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0]
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0]
+            
+            parsed = json.loads(json_str.strip())
+            
+            # Save to database
+            jd_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc).isoformat()
+            await db.jds.insert_one({
+                "id": jd_id,
+                "user_id": user_id,
+                "title": f"{parsed.get('job_title', 'JD')} - {now[:10]}",
+                "raw_text": text,
+                "parsed_data": parsed,
+                "created_at": now,
+                "updated_at": now
+            })
+            
+            await update.message.reply_text(
+                f"✅ Job Description parsed and saved!\n\n"
+                f"Job: {parsed.get('job_title', 'N/A')}\n"
+                f"Company: {parsed.get('company', 'N/A')}\n"
+                f"Must Have: {', '.join(parsed.get('must_have_skills', [])[:3])}\n\n"
+                f"View it in your dashboard!"
+            )
+    except Exception as e:
+        logger.error(f"Telegram parsing error: {str(e)}")
+        await update.message.reply_text(f"Sorry, there was an error parsing your text. Please try again.")
+    
+    return ConversationHandler.END
+
+async def telegram_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel the conversation"""
+    await update.message.reply_text(
+        "Cancelled. Send 'hi' to start again!",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return ConversationHandler.END
+
 # ==================== Download Routes ====================
 
 @api_router.post("/download/pdf")
