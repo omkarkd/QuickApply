@@ -118,6 +118,47 @@ class ResumeResponse(BaseModel):
 class ParseRequest(BaseModel):
     text: str
 
+# JD (Job Description) Models
+class JDData(BaseModel):
+    job_title: Optional[str] = ""
+    company: Optional[str] = ""
+    location: Optional[str] = ""
+    must_have_skills: List[str] = []
+    good_to_have_skills: List[str] = []
+    experience_required: Optional[str] = ""
+    salary_range: Optional[str] = ""
+    job_type: Optional[str] = ""  # Full-time/Part-time/Contract
+    description: Optional[str] = ""
+
+class JDCreate(BaseModel):
+    title: str
+    raw_text: str
+    parsed_data: Optional[JDData] = None
+
+class JDUpdate(BaseModel):
+    title: Optional[str] = None
+    raw_text: Optional[str] = None
+    parsed_data: Optional[JDData] = None
+
+class JDResponse(BaseModel):
+    id: str
+    user_id: str
+    title: str
+    raw_text: str
+    parsed_data: Optional[dict] = None
+    created_at: str
+    updated_at: str
+
+# Telegram Settings Model
+class TelegramSettings(BaseModel):
+    bot_token: Optional[str] = None
+    is_active: bool = False
+    chat_id: Optional[str] = None
+
+class TelegramSettingsUpdate(BaseModel):
+    bot_token: Optional[str] = None
+    is_active: Optional[bool] = None
+
 # ==================== Auth Helpers ====================
 
 def hash_password(password: str) -> str:
