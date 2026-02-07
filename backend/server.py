@@ -732,46 +732,64 @@ async def update_telegram_settings(settings: TelegramSettingsUpdate, current_use
     return updated
 
 # Telegram Bot Handlers
+telegram_bots = {}  # Store bot instances by user_id
+
 async def start_telegram_bot(bot_token: str, user_id: str):
-    """Start Telegram bot for a user"""
-    global telegram_app, telegram_thread
+    """Start Telegram bot for a user using asyncio"""
+    global telegram_bots
     
     try:
-        if telegram_app:
-            await telegram_app.stop()
+        # Stop existing bot for this user if any
+        if user_id in telegram_bots:
+            old_app = telegram_bots[user_id]
+            try:
+                await old_app.stop()
+                await old_app.shutdown()
+            except:
+                pass
         
-        telegram_app = Application.builder().token(bot_token).build()
+        # Create new application
+        application = Application.builder().token(bot_token).build()
         
         # Conversation handler
         conv_handler = ConversationHandler(
-            entry_points=[CommandHandler("start", telegram_start), MessageHandler(filters.Regex(r'^[Hh]i'), telegram_start)],
+            entry_points=[
+                CommandHandler("start", lambda u, c: telegram_start(u, c, user_id)),
+                MessageHandler(filters.Regex(r'^[Hh]i'), lambda u, c: telegram_start(u, c, user_id))
+            ],
             states={
-                CHOOSING: [MessageHandler(filters.Regex(r'^(Resume|JD)$'), telegram_choice)],
-                WAITING_FOR_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, telegram_receive_text)],
+                CHOOSING: [MessageHandler(filters.Regex(r'^(Resume|JD)$'), lambda u, c: telegram_choice(u, c, user_id))],
+                WAITING_FOR_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: telegram_receive_text(u, c, user_id))],
             },
             fallbacks=[CommandHandler("cancel", telegram_cancel)],
         )
         
-        telegram_app.add_handler(conv_handler)
+        application.add_handler(conv_handler)
         
-        # Store user_id in bot_data
-        telegram_app.bot_data["user_id"] = user_id
+        # Initialize and start
+        await application.initialize()
+        await application.start()
         
-        # Run bot in background
-        def run_bot():
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(telegram_app.run_polling())
+        # Start polling in background task
+        asyncio.create_task(run_polling_task(application, user_id))
         
-        telegram_thread = threading.Thread(target=run_bot, daemon=True)
-        telegram_thread.start()
-        
+        telegram_bots[user_id] = application
         logger.info(f"Telegram bot started for user {user_id}")
+        
     except Exception as e:
         logger.error(f"Failed to start Telegram bot: {str(e)}")
+        raise
 
-async def telegram_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def run_polling_task(application, user_id):
+    """Run polling as a background task"""
+    try:
+        updater = application.updater
+        await updater.start_polling(drop_pending_updates=True)
+        logger.info(f"Polling started for user {user_id}")
+    except Exception as e:
+        logger.error(f"Polling error for user {user_id}: {str(e)}")
+
+async def telegram_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: str) -> int:
     """Start conversation and ask Resume or JD"""
     reply_keyboard = [["Resume", "JD"]]
     await update.message.reply_text(
@@ -780,21 +798,21 @@ async def telegram_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True),
     )
     
-    # Store chat_id
+    # Store chat_id and user_id in context
+    context.user_data["app_user_id"] = user_id
     chat_id = str(update.effective_chat.id)
-    user_id = context.application.bot_data.get("user_id")
-    if user_id:
-        await db.telegram_settings.update_one(
-            {"user_id": user_id},
-            {"$set": {"chat_id": chat_id}}
-        )
+    await db.telegram_settings.update_one(
+        {"user_id": user_id},
+        {"$set": {"chat_id": chat_id}}
+    )
     
     return CHOOSING
 
-async def telegram_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def telegram_choice(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: str) -> int:
     """Store user's choice and ask for text"""
     choice = update.message.text
     context.user_data["choice"] = choice
+    context.user_data["app_user_id"] = user_id
     
     await update.message.reply_text(
         f"Great! Please send me your {choice} text.\n"
@@ -803,7 +821,7 @@ async def telegram_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
     return WAITING_FOR_TEXT
 
-async def telegram_receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def telegram_receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: str) -> int:
     """Receive and parse the text"""
     text = update.message.text
     choice = context.user_data.get("choice", "Resume")
