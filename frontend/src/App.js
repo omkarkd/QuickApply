@@ -6,6 +6,9 @@ import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import DashboardPage from "./pages/DashboardPage";
 import EditorPage from "./pages/EditorPage";
+import JDEditorPage from "./pages/JDEditorPage";
+import JDListPage from "./pages/JDListPage";
+import TelegramSettingsPage from "./pages/TelegramSettingsPage";
 import "./App.css";
 
 const ProtectedRoute = ({ children }) => {
@@ -73,6 +76,26 @@ function App() {
           <Route path="/editor/:resumeId" element={
             <ProtectedRoute>
               <EditorPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/jd" element={
+            <ProtectedRoute>
+              <JDListPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/jd/editor" element={
+            <ProtectedRoute>
+              <JDEditorPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/jd/editor/:jdId" element={
+            <ProtectedRoute>
+              <JDEditorPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/telegram" element={
+            <ProtectedRoute>
+              <TelegramSettingsPage />
             </ProtectedRoute>
           } />
         </Routes>
