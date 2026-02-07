@@ -27,9 +27,17 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+import threading
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, ContextTypes
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# Telegram Bot States
+CHOOSING, WAITING_FOR_TEXT = range(2)
+telegram_app = None
+telegram_thread = None
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
