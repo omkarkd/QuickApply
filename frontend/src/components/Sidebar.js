@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from './ui/button';
-import { FileText, Briefcase, Bot, Home, LogOut, User } from 'lucide-react';
+import { FileText, Briefcase, Bot, Home, LogOut, User, Target } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 
