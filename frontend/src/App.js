@@ -9,6 +9,8 @@ import EditorPage from "./pages/EditorPage";
 import JDEditorPage from "./pages/JDEditorPage";
 import JDListPage from "./pages/JDListPage";
 import TelegramSettingsPage from "./pages/TelegramSettingsPage";
+import MatchScorePage from "./pages/MatchScorePage";
+import RewriterPage from "./pages/RewriterPage";
 import "./App.css";
 
 const ProtectedRoute = ({ children }) => {
