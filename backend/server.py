@@ -625,7 +625,7 @@ async def create_resume(resume_data: ResumeCreate, current_user: dict = Depends(
     
     resume_doc = {
         "id": resume_id,
-        "user_id": current_user["id"],
+        "user_id": current_user["user_id"],
         "title": resume_data.title,
         "raw_text": resume_data.raw_text,
         "parsed_data": resume_data.parsed_data.model_dump() if resume_data.parsed_data else None,
@@ -640,7 +640,7 @@ async def create_resume(resume_data: ResumeCreate, current_user: dict = Depends(
 @api_router.get("/resumes", response_model=List[ResumeResponse])
 async def list_resumes(current_user: dict = Depends(get_user_dependency)):
     resumes = await db.resumes.find(
-        {"user_id": current_user["id"]}, 
+        {"user_id": current_user["user_id"]}, 
         {"_id": 0}
     ).sort("updated_at", -1).to_list(100)
     return [ResumeResponse(**r) for r in resumes]
@@ -648,7 +648,7 @@ async def list_resumes(current_user: dict = Depends(get_user_dependency)):
 @api_router.get("/resumes/{resume_id}", response_model=ResumeResponse)
 async def get_resume(resume_id: str, current_user: dict = Depends(get_user_dependency)):
     resume = await db.resumes.find_one(
-        {"id": resume_id, "user_id": current_user["id"]},
+        {"id": resume_id, "user_id": current_user["user_id"]},
         {"_id": 0}
     )
     if not resume:
@@ -657,7 +657,7 @@ async def get_resume(resume_id: str, current_user: dict = Depends(get_user_depen
 
 @api_router.put("/resumes/{resume_id}", response_model=ResumeResponse)
 async def update_resume(resume_id: str, resume_data: ResumeUpdate, current_user: dict = Depends(get_user_dependency)):
-    resume = await db.resumes.find_one({"id": resume_id, "user_id": current_user["id"]})
+    resume = await db.resumes.find_one({"id": resume_id, "user_id": current_user["user_id"]})
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
     
@@ -678,7 +678,7 @@ async def update_resume(resume_id: str, resume_data: ResumeUpdate, current_user:
 
 @api_router.delete("/resumes/{resume_id}")
 async def delete_resume(resume_id: str, current_user: dict = Depends(get_user_dependency)):
-    result = await db.resumes.delete_one({"id": resume_id, "user_id": current_user["id"]})
+    result = await db.resumes.delete_one({"id": resume_id, "user_id": current_user["user_id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Resume not found")
     return {"message": "Resume deleted successfully"}
@@ -808,7 +808,7 @@ async def create_jd(jd_data: JDCreate, current_user: dict = Depends(get_user_dep
     
     jd_doc = {
         "id": jd_id,
-        "user_id": current_user["id"],
+        "user_id": current_user["user_id"],
         "title": jd_data.title,
         "raw_text": jd_data.raw_text,
         "parsed_data": jd_data.parsed_data.model_dump() if jd_data.parsed_data else None,
@@ -822,7 +822,7 @@ async def create_jd(jd_data: JDCreate, current_user: dict = Depends(get_user_dep
 @api_router.get("/jds", response_model=List[JDResponse])
 async def list_jds(current_user: dict = Depends(get_user_dependency)):
     jds = await db.jds.find(
-        {"user_id": current_user["id"]}, 
+        {"user_id": current_user["user_id"]}, 
         {"_id": 0}
     ).sort("updated_at", -1).to_list(100)
     return [JDResponse(**j) for j in jds]
@@ -830,7 +830,7 @@ async def list_jds(current_user: dict = Depends(get_user_dependency)):
 @api_router.get("/jds/{jd_id}", response_model=JDResponse)
 async def get_jd(jd_id: str, current_user: dict = Depends(get_user_dependency)):
     jd = await db.jds.find_one(
-        {"id": jd_id, "user_id": current_user["id"]},
+        {"id": jd_id, "user_id": current_user["user_id"]},
         {"_id": 0}
     )
     if not jd:
@@ -839,7 +839,7 @@ async def get_jd(jd_id: str, current_user: dict = Depends(get_user_dependency)):
 
 @api_router.put("/jds/{jd_id}", response_model=JDResponse)
 async def update_jd(jd_id: str, jd_data: JDUpdate, current_user: dict = Depends(get_user_dependency)):
-    jd = await db.jds.find_one({"id": jd_id, "user_id": current_user["id"]})
+    jd = await db.jds.find_one({"id": jd_id, "user_id": current_user["user_id"]})
     if not jd:
         raise HTTPException(status_code=404, detail="JD not found")
     
@@ -859,7 +859,7 @@ async def update_jd(jd_id: str, jd_data: JDUpdate, current_user: dict = Depends(
 
 @api_router.delete("/jds/{jd_id}")
 async def delete_jd(jd_id: str, current_user: dict = Depends(get_user_dependency)):
-    result = await db.jds.delete_one({"id": jd_id, "user_id": current_user["id"]})
+    result = await db.jds.delete_one({"id": jd_id, "user_id": current_user["user_id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="JD not found")
     return {"message": "JD deleted successfully"}
@@ -869,7 +869,7 @@ async def delete_jd(jd_id: str, current_user: dict = Depends(get_user_dependency
 @api_router.get("/telegram/settings")
 async def get_telegram_settings(current_user: dict = Depends(get_user_dependency)):
     settings = await db.telegram_settings.find_one(
-        {"user_id": current_user["id"]},
+        {"user_id": current_user["user_id"]},
         {"_id": 0}
     )
     if not settings:
@@ -878,9 +878,9 @@ async def get_telegram_settings(current_user: dict = Depends(get_user_dependency
 
 @api_router.put("/telegram/settings")
 async def update_telegram_settings(settings: TelegramSettingsUpdate, current_user: dict = Depends(get_user_dependency)):
-    existing = await db.telegram_settings.find_one({"user_id": current_user["id"]})
+    existing = await db.telegram_settings.find_one({"user_id": current_user["user_id"]})
     
-    update_dict = {"user_id": current_user["id"]}
+    update_dict = {"user_id": current_user["user_id"]}
     if settings.bot_token is not None:
         update_dict["bot_token"] = settings.bot_token
     if settings.is_active is not None:
@@ -888,7 +888,7 @@ async def update_telegram_settings(settings: TelegramSettingsUpdate, current_use
     
     if existing:
         await db.telegram_settings.update_one(
-            {"user_id": current_user["id"]},
+            {"user_id": current_user["user_id"]},
             {"$set": update_dict}
         )
     else:
@@ -897,10 +897,10 @@ async def update_telegram_settings(settings: TelegramSettingsUpdate, current_use
     
     # Start or stop bot based on settings
     if settings.is_active and settings.bot_token:
-        await start_telegram_bot(settings.bot_token, current_user["id"])
+        await start_telegram_bot(settings.bot_token, current_user["user_id"])
     
     updated = await db.telegram_settings.find_one(
-        {"user_id": current_user["id"]},
+        {"user_id": current_user["user_id"]},
         {"_id": 0}
     )
     return updated
