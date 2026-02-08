@@ -100,6 +100,16 @@ function App() {
               <TelegramSettingsPage />
             </ProtectedRoute>
           } />
+          <Route path="/match-score" element={
+            <ProtectedRoute>
+              <MatchScorePage />
+            </ProtectedRoute>
+          } />
+          <Route path="/rewriter" element={
+            <ProtectedRoute>
+              <RewriterPage />
+            </ProtectedRoute>
+          } />
         </Routes>
         <Toaster position="top-right" richColors />
       </BrowserRouter>
