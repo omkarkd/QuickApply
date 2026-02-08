@@ -1121,6 +1121,190 @@ async def telegram_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
     return ConversationHandler.END
 
+# ==================== Resume Rewriter Agent ====================
+
+@api_router.post("/rewrite-resume")
+async def rewrite_resume(request: RewriteRequest, current_user: dict = Depends(get_user_dependency)):
+    """AI-powered resume rewriter using GPT-5.2 based on JD"""
+    try:
+        api_key = os.environ.get('EMERGENT_LLM_KEY')
+        if not api_key:
+            raise HTTPException(status_code=500, detail="AI service not configured")
+        
+        # First calculate current score
+        score_chat = LlmChat(
+            api_key=api_key,
+            session_id=f"score-{uuid.uuid4()}",
+            system_message="""You are a resume scoring expert. Analyze the resume against the job description.
+            Return ONLY a JSON object with a single field "score" which is a number between 0 and 100.
+            Score based on: keywords match (40%), skill alignment in context (30%), performance metrics/results (30%).
+            Example: {"score": 65}"""
+        ).with_model("openai", "gpt-5.2")
+        
+        score_response = await score_chat.send_message(UserMessage(
+            text=f"Score this resume against the JD:\n\nRESUME:\n{request.resume_text}\n\nJOB DESCRIPTION:\n{request.jd_text}"
+        ))
+        
+        try:
+            score_json = score_response
+            if "```json" in score_json:
+                score_json = score_json.split("```json")[1].split("```")[0]
+            elif "```" in score_json:
+                score_json = score_json.split("```")[1].split("```")[0]
+            score_before = json.loads(score_json.strip()).get("score", 50)
+        except:
+            score_before = 50
+        
+        # Determine rewrite strategy based on score
+        if score_before < 60:
+            rewrite_instruction = "FULL REWRITE: The resume score is below 60%. Completely rewrite the resume to better match the JD."
+        else:
+            rewrite_instruction = "TARGETED IMPROVEMENTS: The resume score is above 60%. Suggest specific improvements for sections that need enhancement."
+        
+        # Rewrite resume
+        rewrite_chat = LlmChat(
+            api_key=api_key,
+            session_id=f"rewrite-{uuid.uuid4()}",
+            system_message="""You are an expert resume writer and career coach. Your task is to rewrite resumes to match job descriptions.
+
+STRICT RULES FOR REWRITING:
+1. KEYWORDS: Always list technical skills and tools as BULLET POINTS, not in sentences
+   Example: • Python • React • AWS • Docker
+   
+2. KEYWORD ALIGNMENT: When mentioning skills in job descriptions/experience, use them IN CONTEXT within sentences
+   Example: "Developed scalable microservices using Python and deployed on AWS infrastructure"
+   
+3. RPM (Resume Performance Metrics): ALWAYS include quantifiable results and metrics
+   - Revenue/Cost impact: "Reduced costs by $500K annually"
+   - Performance gains: "Improved system performance by 40%"
+   - Team/Project scale: "Led team of 8 engineers"
+   - User impact: "Served 10M+ daily active users"
+
+Return a JSON object with:
+{
+    "rewritten_resume": "The full rewritten resume text",
+    "improvements": ["List of specific improvements made"],
+    "estimated_new_score": 85
+}"""
+        ).with_model("openai", "gpt-5.2")
+        
+        rewrite_response = await rewrite_chat.send_message(UserMessage(
+            text=f"{rewrite_instruction}\n\nORIGINAL RESUME:\n{request.resume_text}\n\nTARGET JOB DESCRIPTION:\n{request.jd_text}"
+        ))
+        
+        try:
+            rewrite_json = rewrite_response
+            if "```json" in rewrite_json:
+                rewrite_json = rewrite_json.split("```json")[1].split("```")[0]
+            elif "```" in rewrite_json:
+                rewrite_json = rewrite_json.split("```")[1].split("```")[0]
+            result = json.loads(rewrite_json.strip())
+            
+            return {
+                "rewritten_resume": result.get("rewritten_resume", ""),
+                "improvements": result.get("improvements", []),
+                "score_before": score_before,
+                "score_after": result.get("estimated_new_score", min(score_before + 20, 95))
+            }
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse rewrite response: {rewrite_response}")
+            raise HTTPException(status_code=500, detail="Failed to parse AI response")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Resume rewrite error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Rewrite failed: {str(e)}")
+
+# ==================== Match Score API ====================
+
+@api_router.post("/match-score", response_model=MatchScoreResponse)
+async def calculate_match_score(request: MatchScoreRequest, current_user: dict = Depends(get_user_dependency)):
+    """Calculate match score between resume and JD with detailed keyword analysis"""
+    try:
+        api_key = os.environ.get('EMERGENT_LLM_KEY')
+        if not api_key:
+            raise HTTPException(status_code=500, detail="AI service not configured")
+        
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"match-score-{uuid.uuid4()}",
+            system_message="""You are an expert ATS (Applicant Tracking System) and resume analyzer.
+            
+Analyze the resume against the job description and calculate scores based on:
+
+1. KEYWORDS SCORE (0-100): 
+   - Extract all technical skills, tools, technologies, certifications from JD
+   - Check which are present/absent in resume
+   - Score = (present keywords / total keywords) * 100
+
+2. KEYWORD ALIGNMENT SCORE (0-100):
+   - Check if skills are used IN CONTEXT within experience/project descriptions
+   - Not just listed, but demonstrated in sentences with action verbs
+   - Higher score for skills shown with impact/results
+
+3. RPM SCORE (Resume Performance Metrics) (0-100):
+   - Look for quantifiable achievements: percentages, dollar amounts, time saved
+   - Team sizes, user counts, scale of projects
+   - Revenue impact, cost savings, efficiency gains
+
+Return ONLY a JSON object:
+{
+    "keywords_score": 75,
+    "alignment_score": 60,
+    "rpm_score": 45,
+    "present_keywords": ["Python", "React", "AWS"],
+    "missing_keywords": ["Kubernetes", "Docker", "CI/CD"],
+    "keyword_details": [
+        {"keyword": "Python", "present": true, "context": "Used Python for backend development"},
+        {"keyword": "Kubernetes", "present": false, "context": null}
+    ],
+    "suggestions": [
+        "Add Kubernetes experience or certification",
+        "Include more metrics in your project descriptions"
+    ]
+}"""
+        ).with_model("openai", "gpt-5.2")
+        
+        response = await chat.send_message(UserMessage(
+            text=f"Analyze this resume against the job description:\n\nRESUME:\n{request.resume_text}\n\nJOB DESCRIPTION:\n{request.jd_text}"
+        ))
+        
+        try:
+            json_str = response
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0]
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0]
+            
+            result = json.loads(json_str.strip())
+            
+            # Calculate overall score (weighted average)
+            keywords_score = result.get("keywords_score", 0)
+            alignment_score = result.get("alignment_score", 0)
+            rpm_score = result.get("rpm_score", 0)
+            overall_score = (keywords_score * 0.4) + (alignment_score * 0.3) + (rpm_score * 0.3)
+            
+            return MatchScoreResponse(
+                overall_score=round(overall_score, 1),
+                keywords_score=keywords_score,
+                alignment_score=alignment_score,
+                rpm_score=rpm_score,
+                present_keywords=result.get("present_keywords", []),
+                missing_keywords=result.get("missing_keywords", []),
+                keyword_details=[KeywordDetail(**kd) for kd in result.get("keyword_details", [])],
+                suggestions=result.get("suggestions", [])
+            )
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse match score response: {response}")
+            raise HTTPException(status_code=500, detail="Failed to parse AI response")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Match score error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Score calculation failed: {str(e)}")
+
 # ==================== Download Routes ====================
 
 @api_router.post("/download/pdf")
