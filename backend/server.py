@@ -944,7 +944,7 @@ async def start_telegram_bot(bot_token: str, user_id: str):
             try:
                 await old_app.stop()
                 await old_app.shutdown()
-            except:
+            except Exception:
                 pass
         
         # Create new application
@@ -1109,7 +1109,7 @@ async def telegram_receive_text(update: Update, context: ContextTypes.DEFAULT_TY
             )
     except Exception as e:
         logger.error(f"Telegram parsing error: {str(e)}")
-        await update.message.reply_text(f"Sorry, there was an error parsing your text. Please try again.")
+        await update.message.reply_text("Sorry, there was an error parsing your text. Please try again.")
     
     return ConversationHandler.END
 
@@ -1152,7 +1152,7 @@ async def rewrite_resume(request: RewriteRequest, current_user: dict = Depends(g
             elif "```" in score_json:
                 score_json = score_json.split("```")[1].split("```")[0]
             score_before = json.loads(score_json.strip()).get("score", 50)
-        except:
+        except (json.JSONDecodeError, IndexError, KeyError):
             score_before = 50
         
         # Determine rewrite strategy based on score
