@@ -613,7 +613,7 @@ async def parse_ai(request: ParseRequest):
                 ]
             }
             Extract all information accurately. If something is not found, use empty string or empty array."""
-        ).with_model("openai", "gpt-5.2")
+        ).with_model("anthropic", "claude-sonnet-4-5")
         
         user_message = UserMessage(
             text=f"Parse this resume and return JSON:\n\n{request.text}"
@@ -799,7 +799,7 @@ async def parse_jd_ai(request: ParseRequest):
             - If not explicitly categorized, use context to determine importance
             
             Extract all information accurately. If something is not found, use empty string or empty array."""
-        ).with_model("openai", "gpt-5.2")
+        ).with_model("anthropic", "claude-sonnet-4-5")
         
         user_message = UserMessage(
             text=f"Parse this job description and return JSON:\n\n{request.text}"
@@ -1037,7 +1037,7 @@ async def telegram_receive_text(update: Update, context: ContextTypes.DEFAULT_TY
                 session_id=f"telegram-resume-{uuid.uuid4()}",
                 system_message="""You are a professional resume parser. Extract structured data from resume text.
                 Return ONLY valid JSON with: name, email, linkedin, professional_summary, technical_skills, experiences, projects, education."""
-            ).with_model("openai", "gpt-5.2")
+            ).with_model("anthropic", "claude-sonnet-4-5")
             
             response = await chat.send_message(UserMessage(text=f"Parse this resume:\n{text}"))
             
@@ -1075,7 +1075,7 @@ async def telegram_receive_text(update: Update, context: ContextTypes.DEFAULT_TY
                 session_id=f"telegram-jd-{uuid.uuid4()}",
                 system_message="""You are a job description parser. Extract: job_title, company, location, must_have_skills, good_to_have_skills, experience_required, salary_range, job_type.
                 Return ONLY valid JSON."""
-            ).with_model("openai", "gpt-5.2")
+            ).with_model("anthropic", "claude-sonnet-4-5")
             
             response = await chat.send_message(UserMessage(text=f"Parse this JD:\n{text}"))
             
@@ -1139,7 +1139,7 @@ async def rewrite_resume(request: RewriteRequest, current_user: dict = Depends(g
             Return ONLY a JSON object with a single field "score" which is a number between 0 and 100.
             Score based on: keywords match (40%), skill alignment in context (30%), performance metrics/results (30%).
             Example: {"score": 65}"""
-        ).with_model("openai", "gpt-5.2")
+        ).with_model("anthropic", "claude-sonnet-4-5")
         
         score_response = await score_chat.send_message(UserMessage(
             text=f"Score this resume against the JD:\n\nRESUME:\n{request.resume_text}\n\nJOB DESCRIPTION:\n{request.jd_text}"
@@ -1186,7 +1186,7 @@ Return a JSON object with:
     "improvements": ["List of specific improvements made"],
     "estimated_new_score": 85
 }"""
-        ).with_model("openai", "gpt-5.2")
+        ).with_model("anthropic", "claude-sonnet-4-5")
         
         rewrite_response = await rewrite_chat.send_message(UserMessage(
             text=f"{rewrite_instruction}\n\nORIGINAL RESUME:\n{request.resume_text}\n\nTARGET JOB DESCRIPTION:\n{request.jd_text}"
@@ -1264,7 +1264,7 @@ Return ONLY a JSON object:
         "Include more metrics in your project descriptions"
     ]
 }"""
-        ).with_model("openai", "gpt-5.2")
+        ).with_model("anthropic", "claude-sonnet-4-5")
         
         response = await chat.send_message(UserMessage(
             text=f"Analyze this resume against the job description:\n\nRESUME:\n{request.resume_text}\n\nJOB DESCRIPTION:\n{request.jd_text}"
