@@ -163,6 +163,7 @@ class TelegramSettingsUpdate(BaseModel):
 
 # ==================== Auth Helpers ====================
 
+# Keep password auth for backward compatibility
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
@@ -172,76 +173,243 @@ def verify_password(password: str, hashed: str) -> bool:
 def create_token(user_id: str) -> str:
     payload = {
         "user_id": user_id,
-        "exp": datetime.now(timezone.utc).timestamp() + 86400 * 7  # 7 days
+        "exp": datetime.now(timezone.utc).timestamp() + 86400 * 7
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    try:
-        token = credentials.credentials
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user_id = payload.get("user_id")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        
-        user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+async def get_current_user(request: Request):
+    """Get current user from session token (cookie or header)"""
+    # Try cookie first
+    session_token = request.cookies.get("session_token")
+    
+    # Fallback to Authorization header
+    if not session_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ")[1]
+    
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Check session in database
+    session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    # Check expiry with timezone awareness
+    expires_at = session.get("expires_at")
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+    
+    # Get user
+    user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0, "password": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    return user
 
 # ==================== Auth Routes ====================
 
-@api_router.post("/auth/register", response_model=TokenResponse)
-async def register(user_data: UserCreate):
+@api_router.post("/auth/session")
+async def create_session(request: SessionRequest, response: Response):
+    """Exchange session_id from Emergent Auth for session_token"""
+    try:
+        # Call Emergent Auth API to get user data
+        async with httpx.AsyncClient() as client_http:
+            auth_response = await client_http.get(
+                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+                headers={"X-Session-ID": request.session_id}
+            )
+        
+        if auth_response.status_code != 200:
+            raise HTTPException(status_code=401, detail="Invalid session_id")
+        
+        user_data = auth_response.json()
+        email = user_data.get("email")
+        name = user_data.get("name")
+        picture = user_data.get("picture")
+        
+        # Check if user exists, create if not
+        existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+        if existing_user:
+            user_id = existing_user["user_id"]
+            # Update user info if changed
+            await db.users.update_one(
+                {"user_id": user_id},
+                {"$set": {"name": name, "picture": picture}}
+            )
+        else:
+            # Create new user
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+            await db.users.insert_one({
+                "user_id": user_id,
+                "email": email,
+                "name": name,
+                "picture": picture,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
+        
+        # Create session
+        session_token = f"session_{uuid.uuid4().hex}"
+        expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_DURATION_DAYS)
+        
+        await db.user_sessions.insert_one({
+            "user_id": user_id,
+            "session_token": session_token,
+            "expires_at": expires_at,
+            "created_at": datetime.now(timezone.utc)
+        })
+        
+        # Set httpOnly cookie
+        response.set_cookie(
+            key="session_token",
+            value=session_token,
+            httponly=True,
+            secure=True,
+            samesite="none",
+            path="/",
+            max_age=SESSION_DURATION_DAYS * 24 * 60 * 60
+        )
+        
+        # Get full user data
+        user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
+        
+        return {
+            "user": UserResponse(
+                user_id=user["user_id"],
+                email=user["email"],
+                name=user["name"],
+                picture=user.get("picture"),
+                created_at=user["created_at"]
+            ),
+            "session_token": session_token
+        }
+        
+    except httpx.HTTPError as e:
+        logger.error(f"Auth API error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Authentication service error")
+
+@api_router.post("/auth/register")
+async def register(user_data: UserCreate, response: Response):
+    """Legacy email/password registration"""
     existing = await db.users.find_one({"email": user_data.email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    user_id = str(uuid.uuid4())
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
     user_doc = {
-        "id": user_id,
+        "user_id": user_id,
         "email": user_data.email,
         "name": user_data.name,
         "password": hash_password(user_data.password),
+        "picture": None,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.users.insert_one(user_doc)
     
-    token = create_token(user_id)
-    return TokenResponse(
-        access_token=token,
-        user=UserResponse(
-            id=user_id,
+    # Create session
+    session_token = f"session_{uuid.uuid4().hex}"
+    expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_DURATION_DAYS)
+    
+    await db.user_sessions.insert_one({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=SESSION_DURATION_DAYS * 24 * 60 * 60
+    )
+    
+    return {
+        "user": UserResponse(
+            user_id=user_id,
             email=user_data.email,
             name=user_data.name,
+            picture=None,
             created_at=user_doc["created_at"]
-        )
-    )
+        ),
+        "session_token": session_token
+    }
 
-@api_router.post("/auth/login", response_model=TokenResponse)
-async def login(login_data: UserLogin):
+@api_router.post("/auth/login")
+async def login(login_data: UserLogin, response: Response):
+    """Legacy email/password login"""
     user = await db.users.find_one({"email": login_data.email}, {"_id": 0})
-    if not user or not verify_password(login_data.password, user["password"]):
+    if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    token = create_token(user["id"])
-    return TokenResponse(
-        access_token=token,
-        user=UserResponse(
-            id=user["id"],
+    # Check if user has password (Google OAuth users won't have one)
+    if not user.get("password"):
+        raise HTTPException(status_code=401, detail="Please use Google Sign-In for this account")
+    
+    if not verify_password(login_data.password, user["password"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Create session
+    session_token = f"session_{uuid.uuid4().hex}"
+    expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_DURATION_DAYS)
+    
+    await db.user_sessions.insert_one({
+        "user_id": user["user_id"],
+        "session_token": session_token,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=SESSION_DURATION_DAYS * 24 * 60 * 60
+    )
+    
+    return {
+        "user": UserResponse(
+            user_id=user["user_id"],
             email=user["email"],
             name=user["name"],
+            picture=user.get("picture"),
             created_at=user["created_at"]
-        )
+        ),
+        "session_token": session_token
+    }
+
+@api_router.get("/auth/me")
+async def get_me(request: Request):
+    """Get current user from session"""
+    user = await get_current_user(request)
+    return UserResponse(
+        user_id=user["user_id"],
+        email=user["email"],
+        name=user["name"],
+        picture=user.get("picture"),
+        created_at=user["created_at"]
     )
 
-@api_router.get("/auth/me", response_model=UserResponse)
-async def get_me(current_user: dict = Depends(get_current_user)):
-    return UserResponse(**current_user)
+@api_router.post("/auth/logout")
+async def logout(request: Request, response: Response):
+    """Logout and clear session"""
+    session_token = request.cookies.get("session_token")
+    if session_token:
+        await db.user_sessions.delete_one({"session_token": session_token})
+    
+    response.delete_cookie(key="session_token", path="/")
+    return {"message": "Logged out successfully"}
 
 # ==================== Parse Routes ====================
 
