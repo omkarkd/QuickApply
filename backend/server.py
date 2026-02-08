@@ -619,7 +619,7 @@ async def parse_ai(request: ParseRequest):
 # ==================== Resume CRUD Routes ====================
 
 @api_router.post("/resumes", response_model=ResumeResponse)
-async def create_resume(resume_data: ResumeCreate, current_user: dict = Depends(get_current_user)):
+async def create_resume(resume_data: ResumeCreate, current_user: dict = Depends(get_user_dependency)):
     resume_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     
@@ -638,7 +638,7 @@ async def create_resume(resume_data: ResumeCreate, current_user: dict = Depends(
     return ResumeResponse(**{k: v for k, v in resume_doc.items() if k != "_id"})
 
 @api_router.get("/resumes", response_model=List[ResumeResponse])
-async def list_resumes(current_user: dict = Depends(get_current_user)):
+async def list_resumes(current_user: dict = Depends(get_user_dependency)):
     resumes = await db.resumes.find(
         {"user_id": current_user["id"]}, 
         {"_id": 0}
@@ -646,7 +646,7 @@ async def list_resumes(current_user: dict = Depends(get_current_user)):
     return [ResumeResponse(**r) for r in resumes]
 
 @api_router.get("/resumes/{resume_id}", response_model=ResumeResponse)
-async def get_resume(resume_id: str, current_user: dict = Depends(get_current_user)):
+async def get_resume(resume_id: str, current_user: dict = Depends(get_user_dependency)):
     resume = await db.resumes.find_one(
         {"id": resume_id, "user_id": current_user["id"]},
         {"_id": 0}
@@ -656,7 +656,7 @@ async def get_resume(resume_id: str, current_user: dict = Depends(get_current_us
     return ResumeResponse(**resume)
 
 @api_router.put("/resumes/{resume_id}", response_model=ResumeResponse)
-async def update_resume(resume_id: str, resume_data: ResumeUpdate, current_user: dict = Depends(get_current_user)):
+async def update_resume(resume_id: str, resume_data: ResumeUpdate, current_user: dict = Depends(get_user_dependency)):
     resume = await db.resumes.find_one({"id": resume_id, "user_id": current_user["id"]})
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -677,7 +677,7 @@ async def update_resume(resume_id: str, resume_data: ResumeUpdate, current_user:
     return ResumeResponse(**updated_resume)
 
 @api_router.delete("/resumes/{resume_id}")
-async def delete_resume(resume_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_resume(resume_id: str, current_user: dict = Depends(get_user_dependency)):
     result = await db.resumes.delete_one({"id": resume_id, "user_id": current_user["id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -802,7 +802,7 @@ async def parse_jd_ai(request: ParseRequest):
 # ==================== JD CRUD Routes ====================
 
 @api_router.post("/jds", response_model=JDResponse)
-async def create_jd(jd_data: JDCreate, current_user: dict = Depends(get_current_user)):
+async def create_jd(jd_data: JDCreate, current_user: dict = Depends(get_user_dependency)):
     jd_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     
@@ -820,7 +820,7 @@ async def create_jd(jd_data: JDCreate, current_user: dict = Depends(get_current_
     return JDResponse(**{k: v for k, v in jd_doc.items() if k != "_id"})
 
 @api_router.get("/jds", response_model=List[JDResponse])
-async def list_jds(current_user: dict = Depends(get_current_user)):
+async def list_jds(current_user: dict = Depends(get_user_dependency)):
     jds = await db.jds.find(
         {"user_id": current_user["id"]}, 
         {"_id": 0}
@@ -828,7 +828,7 @@ async def list_jds(current_user: dict = Depends(get_current_user)):
     return [JDResponse(**j) for j in jds]
 
 @api_router.get("/jds/{jd_id}", response_model=JDResponse)
-async def get_jd(jd_id: str, current_user: dict = Depends(get_current_user)):
+async def get_jd(jd_id: str, current_user: dict = Depends(get_user_dependency)):
     jd = await db.jds.find_one(
         {"id": jd_id, "user_id": current_user["id"]},
         {"_id": 0}
@@ -838,7 +838,7 @@ async def get_jd(jd_id: str, current_user: dict = Depends(get_current_user)):
     return JDResponse(**jd)
 
 @api_router.put("/jds/{jd_id}", response_model=JDResponse)
-async def update_jd(jd_id: str, jd_data: JDUpdate, current_user: dict = Depends(get_current_user)):
+async def update_jd(jd_id: str, jd_data: JDUpdate, current_user: dict = Depends(get_user_dependency)):
     jd = await db.jds.find_one({"id": jd_id, "user_id": current_user["id"]})
     if not jd:
         raise HTTPException(status_code=404, detail="JD not found")
@@ -858,7 +858,7 @@ async def update_jd(jd_id: str, jd_data: JDUpdate, current_user: dict = Depends(
     return JDResponse(**updated_jd)
 
 @api_router.delete("/jds/{jd_id}")
-async def delete_jd(jd_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_jd(jd_id: str, current_user: dict = Depends(get_user_dependency)):
     result = await db.jds.delete_one({"id": jd_id, "user_id": current_user["id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="JD not found")
@@ -867,7 +867,7 @@ async def delete_jd(jd_id: str, current_user: dict = Depends(get_current_user)):
 # ==================== Telegram Bot Routes ====================
 
 @api_router.get("/telegram/settings")
-async def get_telegram_settings(current_user: dict = Depends(get_current_user)):
+async def get_telegram_settings(current_user: dict = Depends(get_user_dependency)):
     settings = await db.telegram_settings.find_one(
         {"user_id": current_user["id"]},
         {"_id": 0}
@@ -877,7 +877,7 @@ async def get_telegram_settings(current_user: dict = Depends(get_current_user)):
     return settings
 
 @api_router.put("/telegram/settings")
-async def update_telegram_settings(settings: TelegramSettingsUpdate, current_user: dict = Depends(get_current_user)):
+async def update_telegram_settings(settings: TelegramSettingsUpdate, current_user: dict = Depends(get_user_dependency)):
     existing = await db.telegram_settings.find_one({"user_id": current_user["id"]})
     
     update_dict = {"user_id": current_user["id"]}
