@@ -155,6 +155,37 @@ class TelegramSettingsUpdate(BaseModel):
     bot_token: Optional[str] = None
     is_active: Optional[bool] = None
 
+# Resume Rewriter Models
+class RewriteRequest(BaseModel):
+    resume_text: str
+    jd_text: str
+
+class RewriteResponse(BaseModel):
+    rewritten_resume: str
+    improvements: List[str]
+    score_before: float
+    score_after: float
+
+# Match Score Models
+class MatchScoreRequest(BaseModel):
+    resume_text: str
+    jd_text: str
+
+class KeywordDetail(BaseModel):
+    keyword: str
+    present: bool
+    context: Optional[str] = None
+
+class MatchScoreResponse(BaseModel):
+    overall_score: float
+    keywords_score: float
+    alignment_score: float
+    rpm_score: float
+    present_keywords: List[str]
+    missing_keywords: List[str]
+    keyword_details: List[KeywordDetail]
+    suggestions: List[str]
+
 # ==================== Auth Helpers ====================
 
 # Keep password auth for backward compatibility
