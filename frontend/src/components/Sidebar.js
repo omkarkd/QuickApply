@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from './ui/button';
-import { FileText, Briefcase, Bot, Home, LogOut, User, Target } from 'lucide-react';
+import { FileText, Briefcase, Bot, Home, LogOut, User, Target, Wand2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 
@@ -20,6 +20,7 @@ export default function Sidebar() {
     { icon: FileText, label: 'Resumes', path: '/dashboard' },
     { icon: Briefcase, label: 'Job Descriptions', path: '/jd' },
     { icon: Target, label: 'Match Score', path: '/match-score' },
+    { icon: Wand2, label: 'Resume Rewriter', path: '/rewriter' },
     { icon: Bot, label: 'Telegram Bot', path: '/telegram' },
   ];
 
