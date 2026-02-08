@@ -83,11 +83,6 @@ class UserResponse(BaseModel):
 class SessionRequest(BaseModel):
     session_id: str
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: UserResponse
-
 class ResumeData(BaseModel):
     name: Optional[str] = ""
     email: Optional[str] = ""
