@@ -19,6 +19,7 @@ export default function Sidebar() {
     { icon: Home, label: 'Dashboard', path: '/dashboard' },
     { icon: FileText, label: 'Resumes', path: '/dashboard' },
     { icon: Briefcase, label: 'Job Descriptions', path: '/jd' },
+    { icon: Target, label: 'Match Score', path: '/match-score' },
     { icon: Bot, label: 'Telegram Bot', path: '/telegram' },
   ];
 
