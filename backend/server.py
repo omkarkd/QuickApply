@@ -411,6 +411,10 @@ async def logout(request: Request, response: Response):
     response.delete_cookie(key="session_token", path="/")
     return {"message": "Logged out successfully"}
 
+# Helper to get user from request for route dependencies
+async def get_user_dependency(request: Request):
+    return await get_current_user(request)
+
 # ==================== Parse Routes ====================
 
 @api_router.post("/parse/simple")
