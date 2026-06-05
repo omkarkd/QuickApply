@@ -1,32 +1,31 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Response
-from fastapi.responses import StreamingResponse, JSONResponse
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import re
 import io
 import json
 import asyncio
-import httpx
+import anthropic
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Response
+from fastapi.responses import StreamingResponse
+from dotenv import load_dotenv
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
+from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
-import jwt
 import bcrypt
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor, Cm
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
+from docx.shared import Pt, Inches, Cm
+from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 from reportlab.lib import colors
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, ContextTypes
 
@@ -40,10 +39,6 @@ CHOOSING, WAITING_FOR_TEXT = range(2)
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
-
-# JWT Configuration (kept for backward compatibility)
-JWT_SECRET = os.environ.get('JWT_SECRET', 'default-secret-key')
-JWT_ALGORITHM = "HS256"
 
 # Session duration
 SESSION_DURATION_DAYS = 7
@@ -78,9 +73,6 @@ class UserResponse(BaseModel):
     name: str
     picture: Optional[str] = None
     created_at: str
-
-class SessionRequest(BaseModel):
-    session_id: str
 
 class ResumeData(BaseModel):
     name: Optional[str] = ""
@@ -146,25 +138,29 @@ class JDResponse(BaseModel):
     updated_at: str
 
 # Telegram Settings Model
-class TelegramSettings(BaseModel):
-    bot_token: Optional[str] = None
-    is_active: bool = False
-    chat_id: Optional[str] = None
-
 class TelegramSettingsUpdate(BaseModel):
     bot_token: Optional[str] = None
     is_active: Optional[bool] = None
+
+# Uploaded Texts (intermediate store for the Upload Document page)
+class UploadedTextCreate(BaseModel):
+    doc_type: str  # "resume" | "jd"
+    filename: str
+    raw_text: str
+
+class UploadedTextResponse(BaseModel):
+    id: str
+    user_id: str
+    doc_type: str
+    filename: str
+    raw_text: str
+    char_count: int
+    created_at: str
 
 # Resume Rewriter Models
 class RewriteRequest(BaseModel):
     resume_text: str
     jd_text: str
-
-class RewriteResponse(BaseModel):
-    rewritten_resume: str
-    improvements: List[str]
-    score_before: float
-    score_after: float
 
 # Match Score Models
 class MatchScoreRequest(BaseModel):
@@ -194,13 +190,6 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-
-def create_token(user_id: str) -> str:
-    payload = {
-        "user_id": user_id,
-        "exp": datetime.now(timezone.utc).timestamp() + 86400 * 7
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 async def get_current_user(request: Request):
     """Get current user from session token (cookie or header)"""
@@ -239,114 +228,56 @@ async def get_current_user(request: Request):
 
 # ==================== Auth Routes ====================
 
-@api_router.post("/auth/session")
-async def create_session(request: SessionRequest, response: Response):
-    """Exchange session_id from Emergent Auth for session_token"""
-    try:
-        # Call Emergent Auth API to get user data
-        async with httpx.AsyncClient() as client_http:
-            auth_response = await client_http.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                headers={"X-Session-ID": request.session_id}
-            )
-        
-        if auth_response.status_code != 200:
-            raise HTTPException(status_code=401, detail="Invalid session_id")
-        
-        user_data = auth_response.json()
-        email = user_data.get("email")
-        name = user_data.get("name")
-        picture = user_data.get("picture")
-        
-        # Check if user exists, create if not
-        existing_user = await db.users.find_one({"email": email}, {"_id": 0})
-        if existing_user:
-            user_id = existing_user["user_id"]
-            # Update user info if changed
-            await db.users.update_one(
-                {"user_id": user_id},
-                {"$set": {"name": name, "picture": picture}}
-            )
-        else:
-            # Create new user
-            user_id = f"user_{uuid.uuid4().hex[:12]}"
-            await db.users.insert_one({
-                "user_id": user_id,
-                "email": email,
-                "name": name,
-                "picture": picture,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            })
-        
-        # Create session
-        session_token = f"session_{uuid.uuid4().hex}"
-        expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_DURATION_DAYS)
-        
-        await db.user_sessions.insert_one({
-            "user_id": user_id,
-            "session_token": session_token,
-            "expires_at": expires_at,
-            "created_at": datetime.now(timezone.utc)
-        })
-        
-        # Set httpOnly cookie
-        response.set_cookie(
-            key="session_token",
-            value=session_token,
-            httponly=True,
-            secure=True,
-            samesite="none",
-            path="/",
-            max_age=SESSION_DURATION_DAYS * 24 * 60 * 60
-        )
-        
-        # Get full user data
-        user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0})
-        
-        return {
-            "user": UserResponse(
-                user_id=user["user_id"],
-                email=user["email"],
-                name=user["name"],
-                picture=user.get("picture"),
-                created_at=user["created_at"]
-            ),
-            "session_token": session_token
-        }
-        
-    except httpx.HTTPError as e:
-        logger.error(f"Auth API error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Authentication service error")
-
 @api_router.post("/auth/register")
 async def register(user_data: UserCreate, response: Response):
-    """Legacy email/password registration"""
-    existing = await db.users.find_one({"email": user_data.email})
+    """Email/password registration. Backed by MongoDB with a unique-email index.
+
+    The unique index (created in init_auth_indexes) is the source of truth for
+    duplicate prevention; the find_one precheck is a fast-path for the common
+    case. If a race lets two requests through, the second insert raises
+    DuplicateKeyError and we translate it to a 400.
+    """
+    if len(user_data.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(user_data.password) > 128:
+        raise HTTPException(status_code=400, detail="Password too long")
+    if not user_data.name.strip():
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    # Fast-path duplicate check
+    existing = await db.users.find_one({"email": user_data.email}, {"_id": 1})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     user_doc = {
         "user_id": user_id,
         "email": user_data.email,
-        "name": user_data.name,
+        "name": user_data.name.strip(),
         "password": hash_password(user_data.password),
         "picture": None,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
-    await db.users.insert_one(user_doc)
-    
+    try:
+        await db.users.insert_one(user_doc)
+    except DuplicateKeyError:
+        # The unique index caught a race between the find_one and the insert
+        raise HTTPException(status_code=400, detail="Email already registered")
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"register insert failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not create account")
+
     # Create session
     session_token = f"session_{uuid.uuid4().hex}"
     expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_DURATION_DAYS)
-    
+
     await db.user_sessions.insert_one({
         "user_id": user_id,
         "session_token": session_token,
         "expires_at": expires_at,
         "created_at": datetime.now(timezone.utc)
     })
-    
+
     response.set_cookie(
         key="session_token",
         value=session_token,
@@ -356,12 +287,12 @@ async def register(user_data: UserCreate, response: Response):
         path="/",
         max_age=SESSION_DURATION_DAYS * 24 * 60 * 60
     )
-    
+
     return {
         "user": UserResponse(
             user_id=user_id,
             email=user_data.email,
-            name=user_data.name,
+            name=user_doc["name"],
             picture=None,
             created_at=user_doc["created_at"]
         ),
@@ -375,10 +306,10 @@ async def login(login_data: UserLogin, response: Response):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    # Check if user has password (Google OAuth users won't have one)
+    # Check if user has password
     if not user.get("password"):
-        raise HTTPException(status_code=401, detail="Please use Google Sign-In for this account")
-    
+        raise HTTPException(status_code=401, detail="This account has no password set")
+
     if not verify_password(login_data.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
@@ -428,17 +359,95 @@ async def get_me(request: Request):
 
 @api_router.post("/auth/logout")
 async def logout(request: Request, response: Response):
-    """Logout and clear session"""
+    """Logout and clear session.
+
+    The session token can arrive via:
+      1. The httpOnly cookie (browser path), or
+      2. The Authorization: Bearer header (API clients like the Streamlit UI)
+
+    Both paths must be honored — otherwise a Bearer-authenticated logout would
+    silently return 200 without invalidating the server-side session.
+    """
     session_token = request.cookies.get("session_token")
+    if not session_token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ", 1)[1].strip()
+
     if session_token:
         await db.user_sessions.delete_one({"session_token": session_token})
-    
+
     response.delete_cookie(key="session_token", path="/")
     return {"message": "Logged out successfully"}
 
 # Helper to get user from request for route dependencies
 async def get_user_dependency(request: Request):
     return await get_current_user(request)
+
+# ==================== LLM Helper ====================
+
+# Configure Anthropic SDK to talk to the local model gateway.
+# By default: opencode.ai/zen with model `minimax-m3-free`.
+# Override via env vars ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, ANTHROPIC_API_KEY.
+ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://opencode.ai/zen")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "minimax-m3-free")
+
+anthropic_client = None
+
+
+def get_anthropic_client() -> anthropic.Anthropic:
+    """Lazy-init the Anthropic client so missing key fails fast with a clear error."""
+    global anthropic_client
+    if anthropic_client is None:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="ANTHROPIC_API_KEY not configured. Set it in backend/.env",
+            )
+        anthropic_client = anthropic.Anthropic(
+            api_key=api_key,
+            base_url=ANTHROPIC_BASE_URL,
+        )
+    return anthropic_client
+
+
+async def llm_complete_json(system_prompt: str, user_prompt: str) -> dict:
+    """Call the LLM and return the parsed JSON response.
+
+    Strips markdown code fences if the LLM wraps the JSON in them.
+    Raises HTTPException(500) on parse failure.
+    """
+    client = get_anthropic_client()
+    try:
+        message = client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+    except anthropic.APIError as e:
+        logger.error(f"LLM API error: {e}")
+        raise HTTPException(status_code=500, detail=f"LLM call failed: {str(e)}")
+
+    # Concatenate all text blocks from the response
+    raw = "".join(
+        block.text for block in message.content if getattr(block, "type", None) == "text"
+    )
+
+    # Strip markdown fences
+    json_str = raw
+    if "```json" in json_str:
+        json_str = json_str.split("```json", 1)[1].split("```", 1)[0]
+    elif "```" in json_str:
+        json_str = json_str.split("```", 1)[1].split("```", 1)[0]
+
+    try:
+        return json.loads(json_str.strip())
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse LLM JSON: {raw[:500]}")
+        raise HTTPException(status_code=500, detail="Failed to parse AI response")
+
 
 # ==================== Parse Routes ====================
 
@@ -568,16 +577,9 @@ async def parse_simple(request: ParseRequest):
 
 @api_router.post("/parse/ai")
 async def parse_ai(request: ParseRequest):
-    """AI-powered resume parsing using GPT-5.2"""
+    """AI-powered resume parsing using Claude"""
     try:
-        api_key = os.environ.get('EMERGENT_LLM_KEY')
-        if not api_key:
-            raise HTTPException(status_code=500, detail="AI parsing not configured")
-        
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=f"resume-parse-{uuid.uuid4()}",
-            system_message="""You are a professional resume parser. Extract structured data from resume text.
+        system_prompt = """You are a professional resume parser. Extract structured data from resume text.
             Return ONLY valid JSON with this exact structure:
             {
                 "name": "Full Name",
@@ -613,30 +615,12 @@ async def parse_ai(request: ParseRequest):
                 ]
             }
             Extract all information accurately. If something is not found, use empty string or empty array."""
-        ).with_model("anthropic", "claude-sonnet-4-5")
-        
-        user_message = UserMessage(
-            text=f"Parse this resume and return JSON:\n\n{request.text}"
+        return await llm_complete_json(
+            system_prompt=system_prompt,
+            user_prompt=f"Parse this resume and return JSON:\n\n{request.text}",
         )
-        
-        response = await chat.send_message(user_message)
-        
-        # Try to extract JSON from response
-        try:
-            # Remove markdown code blocks if present
-            json_str = response
-            if "```json" in json_str:
-                json_str = json_str.split("```json")[1].split("```")[0]
-            elif "```" in json_str:
-                json_str = json_str.split("```")[1].split("```")[0]
-            
-            parsed = json.loads(json_str.strip())
-            return parsed
-        except json.JSONDecodeError:
-            # Return the raw response if JSON parsing fails
-            logger.error(f"Failed to parse AI response as JSON: {response}")
-            raise HTTPException(status_code=500, detail="Failed to parse AI response")
-            
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"AI parsing error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"AI parsing failed: {str(e)}")
@@ -708,6 +692,48 @@ async def delete_resume(resume_id: str, current_user: dict = Depends(get_user_de
         raise HTTPException(status_code=404, detail="Resume not found")
     return {"message": "Resume deleted successfully"}
 
+# ==================== Uploaded Texts (intermediate store) ====================
+
+VALID_DOC_TYPES = ("resume", "jd")
+
+@api_router.post("/uploads", response_model=UploadedTextResponse)
+async def create_upload(payload: UploadedTextCreate, current_user: dict = Depends(get_user_dependency)):
+    """Save text extracted on the Upload page. doc_type is "resume" or "jd"."""
+    if payload.doc_type not in VALID_DOC_TYPES:
+        raise HTTPException(status_code=400, detail=f"doc_type must be one of {VALID_DOC_TYPES}")
+    if not payload.raw_text.strip():
+        raise HTTPException(status_code=400, detail="raw_text is empty")
+    upload_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": upload_id,
+        "user_id": current_user["user_id"],
+        "doc_type": payload.doc_type,
+        "filename": payload.filename,
+        "raw_text": payload.raw_text,
+        "char_count": len(payload.raw_text),
+        "created_at": now,
+    }
+    await db.uploaded_texts.insert_one(doc)
+    return UploadedTextResponse(**{k: v for k, v in doc.items() if k != "_id"})
+
+@api_router.get("/uploads", response_model=List[UploadedTextResponse])
+async def list_uploads(current_user: dict = Depends(get_user_dependency)):
+    """List a user's recent uploads (newest first)."""
+    docs = await db.uploaded_texts.find(
+        {"user_id": current_user["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return [UploadedTextResponse(**d) for d in docs]
+
+@api_router.get("/uploads/{upload_id}", response_model=UploadedTextResponse)
+async def get_upload(upload_id: str, current_user: dict = Depends(get_user_dependency)):
+    doc = await db.uploaded_texts.find_one(
+        {"id": upload_id, "user_id": current_user["user_id"]}, {"_id": 0}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    return UploadedTextResponse(**doc)
+
 # ==================== JD Parse Routes ====================
 
 @api_router.post("/parse/jd/simple")
@@ -768,18 +794,11 @@ async def parse_jd_simple(request: ParseRequest):
 
 @api_router.post("/parse/jd/ai")
 async def parse_jd_ai(request: ParseRequest):
-    """AI-powered JD parsing using CrewAI with GPT-5.2"""
+    """AI-powered JD parsing using Claude"""
     try:
-        api_key = os.environ.get('EMERGENT_LLM_KEY')
-        if not api_key:
-            raise HTTPException(status_code=500, detail="AI parsing not configured")
-        
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=f"jd-parse-{uuid.uuid4()}",
-            system_message="""You are an expert job description parser and recruiter. Extract structured data from job descriptions.
+        system_prompt = """You are an expert job description parser and recruiter. Extract structured data from job descriptions.
             Carefully analyze the JD and categorize skills into "Must Have" (required/mandatory) and "Good to Have" (preferred/nice-to-have).
-            
+
             Return ONLY valid JSON with this exact structure:
             {
                 "job_title": "Job Title",
@@ -792,34 +811,19 @@ async def parse_jd_ai(request: ParseRequest):
                 "job_type": "Full-time/Part-time/Contract/Freelance",
                 "description": "Brief job description summary"
             }
-            
+
             Rules for skill categorization:
             - Must Have: Skills explicitly marked as required, mandatory, essential, must have
             - Good to Have: Skills marked as preferred, nice to have, bonus, plus, advantageous
             - If not explicitly categorized, use context to determine importance
-            
+
             Extract all information accurately. If something is not found, use empty string or empty array."""
-        ).with_model("anthropic", "claude-sonnet-4-5")
-        
-        user_message = UserMessage(
-            text=f"Parse this job description and return JSON:\n\n{request.text}"
+        return await llm_complete_json(
+            system_prompt=system_prompt,
+            user_prompt=f"Parse this job description and return JSON:\n\n{request.text}",
         )
-        
-        response = await chat.send_message(user_message)
-        
-        try:
-            json_str = response
-            if "```json" in json_str:
-                json_str = json_str.split("```json")[1].split("```")[0]
-            elif "```" in json_str:
-                json_str = json_str.split("```")[1].split("```")[0]
-            
-            parsed = json.loads(json_str.strip())
-            return parsed
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse AI response as JSON: {response}")
-            raise HTTPException(status_code=500, detail="Failed to parse AI response")
-            
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"AI JD parsing error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"AI parsing failed: {str(e)}")
@@ -1028,27 +1032,14 @@ async def telegram_receive_text(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text("Processing your text... Please wait.")
     
     try:
-        api_key = os.environ.get('EMERGENT_LLM_KEY')
-        
         if choice == "Resume":
             # Parse resume
-            chat = LlmChat(
-                api_key=api_key,
-                session_id=f"telegram-resume-{uuid.uuid4()}",
-                system_message="""You are a professional resume parser. Extract structured data from resume text.
-                Return ONLY valid JSON with: name, email, linkedin, professional_summary, technical_skills, experiences, projects, education."""
-            ).with_model("anthropic", "claude-sonnet-4-5")
-            
-            response = await chat.send_message(UserMessage(text=f"Parse this resume:\n{text}"))
-            
-            json_str = response
-            if "```json" in json_str:
-                json_str = json_str.split("```json")[1].split("```")[0]
-            elif "```" in json_str:
-                json_str = json_str.split("```")[1].split("```")[0]
-            
-            parsed = json.loads(json_str.strip())
-            
+            parsed = await llm_complete_json(
+                system_prompt="""You are a professional resume parser. Extract structured data from resume text.
+                Return ONLY valid JSON with: name, email, linkedin, professional_summary, technical_skills, experiences, projects, education.""",
+                user_prompt=f"Parse this resume:\n{text}",
+            )
+
             # Save to database
             resume_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc).isoformat()
@@ -1061,7 +1052,7 @@ async def telegram_receive_text(update: Update, context: ContextTypes.DEFAULT_TY
                 "created_at": now,
                 "updated_at": now
             })
-            
+
             await update.message.reply_text(
                 f"✅ Resume parsed and saved!\n\n"
                 f"Name: {parsed.get('name', 'N/A')}\n"
@@ -1070,23 +1061,12 @@ async def telegram_receive_text(update: Update, context: ContextTypes.DEFAULT_TY
             )
         else:
             # Parse JD
-            chat = LlmChat(
-                api_key=api_key,
-                session_id=f"telegram-jd-{uuid.uuid4()}",
-                system_message="""You are a job description parser. Extract: job_title, company, location, must_have_skills, good_to_have_skills, experience_required, salary_range, job_type.
-                Return ONLY valid JSON."""
-            ).with_model("anthropic", "claude-sonnet-4-5")
-            
-            response = await chat.send_message(UserMessage(text=f"Parse this JD:\n{text}"))
-            
-            json_str = response
-            if "```json" in json_str:
-                json_str = json_str.split("```json")[1].split("```")[0]
-            elif "```" in json_str:
-                json_str = json_str.split("```")[1].split("```")[0]
-            
-            parsed = json.loads(json_str.strip())
-            
+            parsed = await llm_complete_json(
+                system_prompt="""You are a job description parser. Extract: job_title, company, location, must_have_skills, good_to_have_skills, experience_required, salary_range, job_type.
+                Return ONLY valid JSON.""",
+                user_prompt=f"Parse this JD:\n{text}",
+            )
+
             # Save to database
             jd_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc).isoformat()
@@ -1099,7 +1079,7 @@ async def telegram_receive_text(update: Update, context: ContextTypes.DEFAULT_TY
                 "created_at": now,
                 "updated_at": now
             })
-            
+
             await update.message.reply_text(
                 f"✅ Job Description parsed and saved!\n\n"
                 f"Job: {parsed.get('job_title', 'N/A')}\n"
@@ -1125,55 +1105,38 @@ async def telegram_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 @api_router.post("/rewrite-resume")
 async def rewrite_resume(request: RewriteRequest, current_user: dict = Depends(get_user_dependency)):
-    """AI-powered resume rewriter using GPT-5.2 based on JD"""
+    """AI-powered resume rewriter using the configured LLM"""
     try:
-        api_key = os.environ.get('EMERGENT_LLM_KEY')
-        if not api_key:
-            raise HTTPException(status_code=500, detail="AI service not configured")
-        
         # First calculate current score
-        score_chat = LlmChat(
-            api_key=api_key,
-            session_id=f"score-{uuid.uuid4()}",
-            system_message="""You are a resume scoring expert. Analyze the resume against the job description.
+        try:
+            score_result = await llm_complete_json(
+                system_prompt="""You are a resume scoring expert. Analyze the resume against the job description.
             Return ONLY a JSON object with a single field "score" which is a number between 0 and 100.
             Score based on: keywords match (40%), skill alignment in context (30%), performance metrics/results (30%).
-            Example: {"score": 65}"""
-        ).with_model("anthropic", "claude-sonnet-4-5")
-        
-        score_response = await score_chat.send_message(UserMessage(
-            text=f"Score this resume against the JD:\n\nRESUME:\n{request.resume_text}\n\nJOB DESCRIPTION:\n{request.jd_text}"
-        ))
-        
-        try:
-            score_json = score_response
-            if "```json" in score_json:
-                score_json = score_json.split("```json")[1].split("```")[0]
-            elif "```" in score_json:
-                score_json = score_json.split("```")[1].split("```")[0]
-            score_before = json.loads(score_json.strip()).get("score", 50)
-        except (json.JSONDecodeError, IndexError, KeyError):
+            Example: {"score": 65}""",
+                user_prompt=f"Score this resume against the JD:\n\nRESUME:\n{request.resume_text}\n\nJOB DESCRIPTION:\n{request.jd_text}",
+            )
+            score_before = score_result.get("score", 50)
+        except HTTPException:
             score_before = 50
-        
+
         # Determine rewrite strategy based on score
         if score_before < 60:
             rewrite_instruction = "FULL REWRITE: The resume score is below 60%. Completely rewrite the resume to better match the JD."
         else:
             rewrite_instruction = "TARGETED IMPROVEMENTS: The resume score is above 60%. Suggest specific improvements for sections that need enhancement."
-        
+
         # Rewrite resume
-        rewrite_chat = LlmChat(
-            api_key=api_key,
-            session_id=f"rewrite-{uuid.uuid4()}",
-            system_message="""You are an expert resume writer and career coach. Your task is to rewrite resumes to match job descriptions.
+        result = await llm_complete_json(
+            system_prompt="""You are an expert resume writer and career coach. Your task is to rewrite resumes to match job descriptions.
 
 STRICT RULES FOR REWRITING:
 1. KEYWORDS: Always list technical skills and tools as BULLET POINTS, not in sentences
    Example: • Python • React • AWS • Docker
-   
+
 2. KEYWORD ALIGNMENT: When mentioning skills in job descriptions/experience, use them IN CONTEXT within sentences
    Example: "Developed scalable microservices using Python and deployed on AWS infrastructure"
-   
+
 3. RPM (Resume Performance Metrics): ALWAYS include quantifiable results and metrics
    - Revenue/Cost impact: "Reduced costs by $500K annually"
    - Performance gains: "Improved system performance by 40%"
@@ -1185,31 +1148,17 @@ Return a JSON object with:
     "rewritten_resume": "The full rewritten resume text",
     "improvements": ["List of specific improvements made"],
     "estimated_new_score": 85
-}"""
-        ).with_model("anthropic", "claude-sonnet-4-5")
-        
-        rewrite_response = await rewrite_chat.send_message(UserMessage(
-            text=f"{rewrite_instruction}\n\nORIGINAL RESUME:\n{request.resume_text}\n\nTARGET JOB DESCRIPTION:\n{request.jd_text}"
-        ))
-        
-        try:
-            rewrite_json = rewrite_response
-            if "```json" in rewrite_json:
-                rewrite_json = rewrite_json.split("```json")[1].split("```")[0]
-            elif "```" in rewrite_json:
-                rewrite_json = rewrite_json.split("```")[1].split("```")[0]
-            result = json.loads(rewrite_json.strip())
-            
-            return {
-                "rewritten_resume": result.get("rewritten_resume", ""),
-                "improvements": result.get("improvements", []),
-                "score_before": score_before,
-                "score_after": result.get("estimated_new_score", min(score_before + 20, 95))
-            }
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse rewrite response: {rewrite_response}")
-            raise HTTPException(status_code=500, detail="Failed to parse AI response")
-            
+}""",
+            user_prompt=f"{rewrite_instruction}\n\nORIGINAL RESUME:\n{request.resume_text}\n\nTARGET JOB DESCRIPTION:\n{request.jd_text}",
+        )
+
+        return {
+            "rewritten_resume": result.get("rewritten_resume", ""),
+            "improvements": result.get("improvements", []),
+            "score_before": score_before,
+            "score_after": result.get("estimated_new_score", min(score_before + 20, 95)),
+        }
+
     except HTTPException:
         raise
     except Exception as e:
@@ -1222,18 +1171,12 @@ Return a JSON object with:
 async def calculate_match_score(request: MatchScoreRequest, current_user: dict = Depends(get_user_dependency)):
     """Calculate match score between resume and JD with detailed keyword analysis"""
     try:
-        api_key = os.environ.get('EMERGENT_LLM_KEY')
-        if not api_key:
-            raise HTTPException(status_code=500, detail="AI service not configured")
-        
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=f"match-score-{uuid.uuid4()}",
-            system_message="""You are an expert ATS (Applicant Tracking System) and resume analyzer.
-            
+        result = await llm_complete_json(
+            system_prompt="""You are an expert ATS (Applicant Tracking System) and resume analyzer.
+
 Analyze the resume against the job description and calculate scores based on:
 
-1. KEYWORDS SCORE (0-100): 
+1. KEYWORDS SCORE (0-100):
    - Extract all technical skills, tools, technologies, certifications from JD
    - Check which are present/absent in resume
    - Score = (present keywords / total keywords) * 100
@@ -1263,42 +1206,27 @@ Return ONLY a JSON object:
         "Add Kubernetes experience or certification",
         "Include more metrics in your project descriptions"
     ]
-}"""
-        ).with_model("anthropic", "claude-sonnet-4-5")
-        
-        response = await chat.send_message(UserMessage(
-            text=f"Analyze this resume against the job description:\n\nRESUME:\n{request.resume_text}\n\nJOB DESCRIPTION:\n{request.jd_text}"
-        ))
-        
-        try:
-            json_str = response
-            if "```json" in json_str:
-                json_str = json_str.split("```json")[1].split("```")[0]
-            elif "```" in json_str:
-                json_str = json_str.split("```")[1].split("```")[0]
-            
-            result = json.loads(json_str.strip())
-            
-            # Calculate overall score (weighted average)
-            keywords_score = result.get("keywords_score", 0)
-            alignment_score = result.get("alignment_score", 0)
-            rpm_score = result.get("rpm_score", 0)
-            overall_score = (keywords_score * 0.4) + (alignment_score * 0.3) + (rpm_score * 0.3)
-            
-            return MatchScoreResponse(
-                overall_score=round(overall_score, 1),
-                keywords_score=keywords_score,
-                alignment_score=alignment_score,
-                rpm_score=rpm_score,
-                present_keywords=result.get("present_keywords", []),
-                missing_keywords=result.get("missing_keywords", []),
-                keyword_details=[KeywordDetail(**kd) for kd in result.get("keyword_details", [])],
-                suggestions=result.get("suggestions", [])
-            )
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse match score response: {response}")
-            raise HTTPException(status_code=500, detail="Failed to parse AI response")
-            
+}""",
+            user_prompt=f"Analyze this resume against the job description:\n\nRESUME:\n{request.resume_text}\n\nJOB DESCRIPTION:\n{request.jd_text}",
+        )
+
+        # Calculate overall score (weighted average)
+        keywords_score = result.get("keywords_score", 0)
+        alignment_score = result.get("alignment_score", 0)
+        rpm_score = result.get("rpm_score", 0)
+        overall_score = (keywords_score * 0.4) + (alignment_score * 0.3) + (rpm_score * 0.3)
+
+        return MatchScoreResponse(
+            overall_score=round(overall_score, 1),
+            keywords_score=keywords_score,
+            alignment_score=alignment_score,
+            rpm_score=rpm_score,
+            present_keywords=result.get("present_keywords", []),
+            missing_keywords=result.get("missing_keywords", []),
+            keyword_details=[KeywordDetail(**kd) for kd in result.get("keyword_details", [])],
+            suggestions=result.get("suggestions", [])
+        )
+
     except HTTPException:
         raise
     except Exception as e:
@@ -1708,6 +1636,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def init_auth_indexes():
+    """Create auth-related indexes and sweep expired sessions at startup.
+
+    * Unique index on db.users.email prevents two simultaneous register
+      calls from inserting duplicate accounts.
+    * TTL index on db.user_sessions.expires_at makes MongoDB itself
+      garbage-collect expired sessions, so we never accumulate dead rows.
+    """
+    try:
+        await db.users.create_index("email", unique=True)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Could not ensure unique email index: {e}")
+    try:
+        # TTL index — Mongo deletes the doc when expires_at passes.
+        await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Could not ensure sessions TTL index: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

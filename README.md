@@ -1,171 +1,147 @@
-# QuickResume - Resume & JD Formatter App v0.1
+# QuickResume — Resume & JD Formatter
 
-A full-stack application for parsing, formatting, and managing resumes and job descriptions with AI-powered extraction.
+A full-stack application for parsing, formatting, scoring, and rewriting resumes against job descriptions. The UI is a single-file Streamlit app talking to a FastAPI backend with MongoDB.
 
-## 🚀 Features
+## ✨ Features
 
-### Resume Parser
-- **AI Parsing (GPT-5.2)**: Intelligent extraction of resume data using OpenAI's GPT-5.2
-- **Simple Parsing**: Fast regex-based parsing for quick formatting
-- **Professional Formatting**: Download resumes as PDF or DOCX with:
-  - Horizontal lines under section headers
-  - Right-aligned dates
-  - Narrow margins (1.27cm)
-  - Professional typography
-
-### Job Description (JD) Parser
-- **AI Parsing (CrewAI/GPT-5.2)**: Extracts structured data from job descriptions
-- **Simple Parsing**: Regex-based extraction
-- **Extracted Fields**:
-  - Job Title, Company, Location
-  - **Must Have Skills** (required/mandatory)
-  - **Good to Have Skills** (preferred/nice-to-have)
-  - Experience Required, Salary Range
-  - Job Type (Full-time/Part-time/Contract)
-
-### Telegram Bot Integration
-- Connect your own Telegram bot via @BotFather
-- Bot workflow:
-  1. User sends "hi" or "/start"
-  2. Bot asks: Resume or JD?
-  3. User sends text
-  4. Auto-parsed and saved to dashboard
-
-### User Dashboard
-- Sidebar navigation
-- Manage saved resumes and job descriptions
-- Telegram bot settings
+- **AI resume parsing** via the Anthropic-compatible gateway at `opencode.ai/zen` (model `minimax-m3-free`)
+- **Simple regex parsing** for fast turnaround
+- **AI rewriting** of a resume against a specific JD, with before/after match scores
+- **Match scoring** with keyword + alignment breakdown
+- **PDF / DOCX download** with professional typography
+- **Telegram bot** integration (per-user bot tokens, opt-in)
+- **Email + password auth** with MongoDB-backed sessions
 
 ## 🛠️ Tech Stack
 
 ### Backend
-- **FastAPI** - Python web framework
-- **MongoDB** - Database for storing users, resumes, JDs
-- **Emergent Integrations** - LLM integration with GPT-5.2
-- **python-telegram-bot** - Telegram bot framework
-- **python-docx** - DOCX generation
-- **ReportLab** - PDF generation
+- **FastAPI** + **motor** (async MongoDB)
+- **anthropic** Python SDK (pointed at the opencode.ai/zen gateway)
+- **reportlab** (PDF), **python-docx** (DOCX)
+- **bcrypt** + **PyJWT** for sessions
+- **python-telegram-bot** for the bot
 
 ### Frontend
-- **React** - UI framework
-- **Tailwind CSS** - Styling
-- **Shadcn/UI** - Component library
-- **Framer Motion** - Animations
-- **Lucide React** - Icons
+- **Streamlit 1.40** (single-file app)
+- **httpx** for the backend client
+- No JS build pipeline, no `node_modules`
 
 ## 📁 Project Structure
 
 ```
-/app
+.
 ├── backend/
-│   ├── server.py          # FastAPI application with all routes
-│   ├── requirements.txt   # Python dependencies
-│   └── .env              # Environment variables
+│   ├── server.py            # FastAPI app, 22 routes
+│   ├── requirements.txt     # 22 packages total (was 204)
+│   └── .env.example
 ├── frontend/
-│   ├── src/
-│   │   ├── App.js        # Main React app with routes
-│   │   ├── context/
-│   │   │   └── AuthContext.js
-│   │   ├── components/
-│   │   │   ├── Sidebar.js
-│   │   │   └── ui/       # Shadcn components
-│   │   └── pages/
-│   │       ├── LandingPage.js
-│   │       ├── LoginPage.js
-│   │       ├── SignupPage.js
-│   │       ├── DashboardPage.js
-│   │       ├── EditorPage.js
-│   │       ├── JDListPage.js
-│   │       ├── JDEditorPage.js
-│   │       └── TelegramSettingsPage.js
-│   └── package.json
+│   ├── app.py               # Streamlit entry point + landing + auth forms
+│   ├── api_client.py        # httpx wrapper for all 22 routes
+│   ├── auth.py              # session_state + require_auth guard
+│   ├── pages_dashboard.py
+│   ├── pages_editor_resume.py
+│   ├── pages_editor_jd.py
+│   ├── pages_jd_list.py
+│   ├── pages_rewriter.py
+│   ├── pages_match.py
+│   ├── pages_telegram.py
+│   └── src_react_legacy/    # old React/CRA source kept for reference
+├── tests/                   # pytest
 └── README.md
 ```
 
+## 🚀 Run
+
+### 1. Backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+cp .env.example .env
+# edit .env — set ANTHROPIC_API_KEY (or use opencode.ai/zen credentials)
+# also: MONGO_URL, DB_NAME, JWT_SECRET
+
+# Start MongoDB locally or point MONGO_URL at your cluster
+uvicorn server:app --host 0.0.0.0 --port 8001
+```
+
+### 2. Frontend (Streamlit)
+
+```bash
+cd frontend
+# Optional: point at a non-default backend
+# export BACKEND_URL=http://localhost:8001
+streamlit run app.py --server.port 8501
+```
+
+Open <http://localhost:8501>.
+
 ## 🔌 API Endpoints
 
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login user
-- `GET /api/auth/me` - Get current user
+All routes are mounted under `/api`.
+
+### Auth
+- `POST /api/auth/register` — create account
+- `POST /api/auth/login` — returns `{user, session_token}` (httpOnly cookie is also set)
+- `GET /api/auth/me` — current user (accepts `Authorization: Bearer <session_token>` header)
+- `POST /api/auth/logout`
 
 ### Resume
-- `POST /api/parse/simple` - Simple resume parsing
-- `POST /api/parse/ai` - AI resume parsing
-- `GET /api/resumes` - List user's resumes
-- `POST /api/resumes` - Create resume
-- `GET /api/resumes/{id}` - Get resume
-- `PUT /api/resumes/{id}` - Update resume
-- `DELETE /api/resumes/{id}` - Delete resume
+- `POST /api/parse/simple` — regex parse
+- `POST /api/parse/ai` — AI parse
+- `GET/POST /api/resumes` — list / create
+- `GET/PUT/DELETE /api/resumes/{id}`
 
-### Job Description
-- `POST /api/parse/jd/simple` - Simple JD parsing
-- `POST /api/parse/jd/ai` - AI JD parsing (CrewAI)
-- `GET /api/jds` - List user's JDs
-- `POST /api/jds` - Create JD
-- `GET /api/jds/{id}` - Get JD
-- `PUT /api/jds/{id}` - Update JD
-- `DELETE /api/jds/{id}` - Delete JD
+### Job description
+- `POST /api/parse/jd/simple`
+- `POST /api/parse/jd/ai`
+- `GET/POST /api/jds`
+- `GET/PUT/DELETE /api/jds/{id}`
 
-### Download
-- `POST /api/download/pdf` - Generate PDF resume
-- `POST /api/download/docx` - Generate DOCX resume
+### AI
+- `POST /api/rewrite-resume` — `{resume_text, jd_text}` → `{rewritten_resume, improvements, score_before, score_after}`
+- `POST /api/match-score` — `{resume_text, jd_text}` → `{overall_score, keywords_score, alignment_score, rpm_score, present_keywords, missing_keywords, suggestions, ...}`
+
+### Downloads
+- `POST /api/download/pdf` — body is a resume dict, returns `application/pdf`
+- `POST /api/download/docx` — body is a resume dict, returns `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
 
 ### Telegram
-- `GET /api/telegram/settings` - Get bot settings
-- `PUT /api/telegram/settings` - Update bot settings
+- `GET /api/telegram/settings` — returns `{bot_token, is_active, chat_id}`
+- `PUT /api/telegram/settings` — body `{bot_token, chat_id}`
 
 ## 🔧 Environment Variables
 
-### Backend (.env)
+`backend/.env`:
 ```
 MONGO_URL=mongodb://localhost:27017
-DB_NAME=test_database
-CORS_ORIGINS=*
-EMERGENT_LLM_KEY=<your-emergent-key>
-JWT_SECRET=<your-jwt-secret>
+DB_NAME=quickapply
+JWT_SECRET=<long-random-string>
+CORS_ORIGINS=http://localhost:8501
+
+# LLM (Anthropic-compatible gateway at opencode.ai/zen)
+ANTHROPIC_BASE_URL=https://opencode.ai/zen
+ANTHROPIC_MODEL=minimax-m3-free
+ANTHROPIC_API_KEY=sk-...
+
+# Optional global fallback
+TELEGRAM_BOT_TOKEN=
 ```
 
-## 📝 Resume Sections Supported
-- Name
-- Professional Summary
-- Email
-- LinkedIn
-- Technical Skills
-- Experiences (with Company, From/To Date, Bullet Points)
-- Projects
-- Education
+Frontend env (optional):
+```
+BACKEND_URL=http://localhost:8001
+```
 
-## 🎯 JD Fields Extracted
-- Job Title
-- Company
-- Location
-- Must Have Skills
-- Good to Have Skills
-- Experience Required
-- Salary Range
-- Job Type
+## 🧪 Tests
 
-## 📱 Telegram Bot Setup
-1. Create a bot with @BotFather on Telegram
-2. Copy the bot token
-3. Go to /telegram settings in the app
-4. Paste the token and activate
-5. Start chatting with your bot!
+```bash
+cd backend
+pytest -v
+```
 
-## 🚀 Version History
-
-### v0.1 (Baseline)
-- Initial release
-- Resume parsing (AI + Simple)
-- JD parsing (AI + Simple) with Must Have/Good to Have skills
-- PDF/DOCX download with professional formatting
-- User authentication with MongoDB
-- Telegram bot integration
-- Sidebar navigation UI
+10 tests covering auth, parsing, CRUD, downloads, telegram settings.
 
 ## 📄 License
-MIT License
 
----
-Built with ❤️ using Emergent Platform
+MIT

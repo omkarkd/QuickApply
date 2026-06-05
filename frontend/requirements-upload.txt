@@ -1,0 +1,15 @@
+# Document upload / text extraction
+# These are ADDITIVE — they do not replace anything in requirements.txt.
+# Install into the same venv that runs the Streamlit app:
+#   .venv/bin/pip install -r frontend/requirements-upload.txt
+#
+# Why these libraries:
+#   pypdf      — pure-Python PDF text extraction (no system deps)
+#   python-docx — already in main requirements; DOCX extraction
+#   olefile    — low-level OLE compound file reader (.doc is OLE)
+#   antiword   — Python wrapper around the `antiword` system binary
+#                 (brew install antiword). Extracts text from .doc reliably.
+
+pypdf==5.1.0
+olefile==0.47
+antiword==0.1.0
